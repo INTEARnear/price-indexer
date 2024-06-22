@@ -20,13 +20,8 @@ const KNOWN_TOKENS_WITH_NO_POOL: &[&str] = &[];
 // pool here is going to be 0, change it before removing liquidity.
 pub const USD_TOKEN: &str = "usdt.tether-token.near";
 const USD_ROUTES: &[(&str, &str)] = &[
-    ("wrap.near", "REF-3879"), // NEAR-USDT
-    // TODO USDC when stableswap is implemented
-    // (
-    //     "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1", // USDC
-    //     "4179", // 4stables stableswap
-    // ),
-    // TODO FRAX when stableswap is implemented
+    ("wrap.near", "REF-3879"), // NEAR-USDt
+    // TODO FRAX when stableswap is implemented, but no one uses it anyway so not a priority
     // (
     //     "853d955acef822db058eb8505911ed77f175b99e.factory.bridge.near", // FRAX
     //     "4514", // FRAX-USDC stableswap
@@ -43,14 +38,34 @@ const USD_ROUTES: &[(&str, &str)] = &[
         "ftv2.nekotoken.near", // NEKO
         "REF-3807",            // NEKO-NEAR
     ),
+    (
+        "meta-pool.near", // Staked NEAR
+        "REF-1923",       // STNEAR-NEAR
+    ),
+    (
+        "dac17f958d2ee523a2206206994597c13d831ec7.factory.bridge.near", // USDT.e
+        "REF-4",                                                        // NEAR-USDT.e
+    ),
+    (
+        "a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.factory.bridge.near", // USDC.e
+        "REF-3",                                                        // NEAR-USDC.e
+    ),
 ];
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Tokens {
+    #[serde(skip, default = "create_hardcoded_usd_routes")]
     pub hardcoded_usd_routes: HashMap<AccountId, String>,
 
     pub tokens: HashMap<AccountId, Token>,
     pub pools: HashMap<String, (PoolType, PoolData)>,
+}
+
+fn create_hardcoded_usd_routes() -> HashMap<AccountId, String> {
+    USD_ROUTES
+        .iter()
+        .map(|(token_id, pool_id)| (token_id.parse().unwrap(), pool_id.to_string()))
+        .collect()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,12 +80,8 @@ pub struct Token {
 
 impl Tokens {
     pub fn new() -> Self {
-        let mut hardcoded_usd_routes = HashMap::new();
-        for (token_id, pool_id) in USD_ROUTES {
-            hardcoded_usd_routes.insert(token_id.parse().unwrap(), pool_id.to_string());
-        }
         Self {
-            hardcoded_usd_routes,
+            hardcoded_usd_routes: create_hardcoded_usd_routes(),
             tokens: HashMap::new(),
             pools: HashMap::new(),
         }

@@ -12,7 +12,7 @@ use std::{
     sync::Arc,
 };
 
-use actix_web::{http::StatusCode, web, App, HttpResponse, HttpResponseBuilder, HttpServer};
+use actix_web::{http::StatusCode, web, App, HttpResponse, HttpResponseBuilder, HttpServer, Route};
 use inevents_redis::RedisEventStream;
 use intear_events::events::{
     price::{
@@ -33,11 +33,52 @@ use tokio::sync::{Mutex, RwLock};
 
 const MAX_REDIS_EVENT_BUFFER_SIZE: usize = 10_000;
 
+type GetTokenPriceFn = fn(&BigDecimal) -> BigDecimal;
+const HARDCODED_TOKEN_PRICES: &[(&str, GetTokenPriceFn)] = &[
+    ("usdt.tether-token.near", stablecoin_price), // USDt
+    (
+        "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1", // USDC
+        stablecoin_price,
+    ),
+    (
+        "dac17f958d2ee523a2206206994597c13d831ec7.factory.bridge.near", // USDT.e
+        stablecoin_price,
+    ),
+    (
+        "a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.factory.bridge.near", // USDC.e
+        stablecoin_price,
+    ),
+    (
+        "853d955acef822db058eb8505911ed77f175b99e.factory.bridge.near", // FRAX
+        stablecoin_price,
+    ),
+    ("pre.meteor-token.near", |_| 0.into()), // MEPT
+                                             // TODO fetch HOT futures price from WhiteBIT
+                                             // TODO stnear and linear
+];
+
+fn stablecoin_price(actual_price: &BigDecimal) -> BigDecimal {
+    const STABLECOIN_BASE_PRICE: f64 = 1.0;
+    const STABLECOIN_MAX_PRICE_DIFFERENCE: f64 = 0.01;
+
+    let price = actual_price.clone();
+    let price_f64 = f64::from_str(&price.to_string()).unwrap();
+    if (price_f64 - STABLECOIN_BASE_PRICE).abs() < STABLECOIN_MAX_PRICE_DIFFERENCE {
+        1.into()
+    } else {
+        price
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct JsonSerializedPrices {
     prices_only: String,
     ref_compatibility_format: String,
     super_precise: String,
+
+    prices_only_with_hardcoded: String,
+    ref_compatibility_format_with_hardcoded: String,
+    super_precise_with_hardcoded: String,
 }
 
 #[actix_web::main]
@@ -90,10 +131,17 @@ async fn main() -> anyhow::Result<()> {
                 .iter()
                 .map(|(token_id, token)| (token_id.clone(), token.clone()))
                 .collect::<HashMap<_, _>>();
+
+            let last_block_height = last_event_block_height_2.lock().await;
+
             let mut prices_only = HashMap::new();
             let mut ref_compatibility_format = HashMap::new();
             let mut super_precise = HashMap::new();
-            let last_block_height = last_event_block_height_2.lock().await;
+
+            let mut prices_only_with_hardcoded = HashMap::new();
+            let mut ref_compatibility_format_with_hardcoded = HashMap::new();
+            let mut super_precise_with_hardcoded = HashMap::new();
+
             for (token_id, token) in prices {
                 if let Ok(token_metadata) = get_token_metadata(token_id.clone()).await {
                     let price = &token.price_usd;
@@ -117,6 +165,40 @@ async fn main() -> anyhow::Result<()> {
                     );
                     super_precise.insert(token_id.clone(), price_usd.to_string());
 
+                    if let Some(hardcoded_price_fn) = HARDCODED_TOKEN_PRICES
+                        .iter()
+                        .find(|(hardcoded_token_id, _)| hardcoded_token_id == &token_id)
+                        .map(|(_, price_fn)| price_fn)
+                    {
+                        let price_usd = hardcoded_price_fn(&price_usd);
+                        let price_f64 = f64::from_str(&price_usd.to_string()).unwrap();
+                        let price_ref_scale = price_usd.with_scale(12);
+                        prices_only_with_hardcoded.insert(token_id.clone(), price_f64);
+                        ref_compatibility_format_with_hardcoded.insert(
+                            token_id.clone(),
+                            serde_json::json!({
+                                "price": price_ref_scale.to_string(),
+                                "symbol": token.metadata.symbol,
+                                "decimal": token_metadata.decimals,
+                            }),
+                        );
+                        super_precise_with_hardcoded
+                            .insert(token_id.clone(), price_usd.to_string());
+                    } else {
+                        // Insert the same price as the non-hardcoded version
+                        prices_only_with_hardcoded.insert(token_id.clone(), price_f64);
+                        ref_compatibility_format_with_hardcoded.insert(
+                            token_id.clone(),
+                            serde_json::json!({
+                                "price": price_ref_scale.to_string(),
+                                "symbol": token.metadata.symbol,
+                                "decimal": token_metadata.decimals,
+                            }),
+                        );
+                        super_precise_with_hardcoded
+                            .insert(token_id.clone(), price_usd.to_string());
+                    }
+
                     if let Some((block_height, block_timestamp_nanosec)) = *last_block_height {
                         token_price_stream
                             .emit_event(
@@ -139,14 +221,19 @@ async fn main() -> anyhow::Result<()> {
                 .into_iter()
                 .sorted_by_key(|(token_id, _)| token_id.to_string())
                 .collect::<BTreeMap<_, _>>();
-            let json_serialized_prices_only = serde_json::to_string(&prices_only).unwrap();
-            let json_serialized_ref_compatibility_format =
-                serde_json::to_string(&ref_compatibility_format).unwrap();
-            let json_serialized_super_precise = serde_json::to_string(&super_precise).unwrap();
             *json_serialized_all_tokens.write().await = Some(JsonSerializedPrices {
-                prices_only: json_serialized_prices_only,
-                ref_compatibility_format: json_serialized_ref_compatibility_format,
-                super_precise: json_serialized_super_precise,
+                prices_only: serde_json::to_string(&prices_only).unwrap(),
+                ref_compatibility_format: serde_json::to_string(&ref_compatibility_format).unwrap(),
+                super_precise: serde_json::to_string(&super_precise).unwrap(),
+
+                prices_only_with_hardcoded: serde_json::to_string(&prices_only_with_hardcoded)
+                    .unwrap(),
+                ref_compatibility_format_with_hardcoded: serde_json::to_string(
+                    &ref_compatibility_format_with_hardcoded,
+                )
+                .unwrap(),
+                super_precise_with_hardcoded: serde_json::to_string(&super_precise_with_hardcoded)
+                    .unwrap(),
             });
             tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
             save_tokens(&*tokens_clone.read().await).await;
@@ -155,65 +242,45 @@ async fn main() -> anyhow::Result<()> {
 
     tokio::spawn(async move {
         HttpServer::new(move || {
-            let json_serialized_all_tokens_3 = Arc::clone(&json_serialized_all_tokens_2);
-            let json_serialized_all_tokens_4 = Arc::clone(&json_serialized_all_tokens_2);
-            let json_serialized_all_tokens_5 = Arc::clone(&json_serialized_all_tokens_2);
             App::new()
                 .route(
                     "/list-token-price",
-                    web::get().to(move || {
-                        let json_serialized_all_tokens = Arc::clone(&json_serialized_all_tokens_3);
-                        async move {
-                            if let Some(json_serialized_all_tokens) =
-                                json_serialized_all_tokens.read().await.as_ref()
-                            {
-                                HttpResponseBuilder::new(StatusCode::OK)
-                                    .content_type("application/json")
-                                    .insert_header(("Cache-Control", "public, max-age=3"))
-                                    .body(
-                                        json_serialized_all_tokens.ref_compatibility_format.clone(),
-                                    )
-                            } else {
-                                HttpResponse::InternalServerError().finish()
-                            }
-                        }
+                    route(json_serialized_all_tokens_2.clone(), |json_serialized| {
+                        &json_serialized.ref_compatibility_format
                     }),
                 )
                 .route(
                     "/prices",
-                    web::get().to(move || {
-                        let json_serialized_all_tokens = Arc::clone(&json_serialized_all_tokens_4);
-                        async move {
-                            if let Some(json_serialized_all_tokens) =
-                                json_serialized_all_tokens.read().await.as_ref()
-                            {
-                                HttpResponseBuilder::new(StatusCode::OK)
-                                    .content_type("application/json")
-                                    .insert_header(("Cache-Control", "public, max-age=3"))
-                                    .body(json_serialized_all_tokens.prices_only.clone())
-                            } else {
-                                HttpResponse::InternalServerError().finish()
-                            }
-                        }
+                    route(json_serialized_all_tokens_2.clone(), |json_serialized| {
+                        &json_serialized.prices_only
                     }),
                 )
                 .route(
                     "/super-precise",
-                    web::get().to(move || {
-                        let json_serialized_all_tokens = Arc::clone(&json_serialized_all_tokens_5);
-                        async move {
-                            if let Some(json_serialized_all_tokens) =
-                                json_serialized_all_tokens.read().await.as_ref()
-                            {
-                                HttpResponseBuilder::new(StatusCode::OK)
-                                    .content_type("application/json")
-                                    .insert_header(("Cache-Control", "public, max-age=3"))
-                                    .body(json_serialized_all_tokens.super_precise.clone())
-                            } else {
-                                HttpResponse::InternalServerError().finish()
-                            }
-                        }
+                    route(json_serialized_all_tokens_2.clone(), |json_serialized| {
+                        &json_serialized.super_precise
                     }),
+                )
+                .service(
+                    web::scope("/hardcoded")
+                        .route(
+                            "/list-token-price",
+                            route(json_serialized_all_tokens_2.clone(), |json_serialized| {
+                                &json_serialized.ref_compatibility_format_with_hardcoded
+                            }),
+                        )
+                        .route(
+                            "/prices",
+                            route(json_serialized_all_tokens_2.clone(), |json_serialized| {
+                                &json_serialized.prices_only_with_hardcoded
+                            }),
+                        )
+                        .route(
+                            "/super-precise",
+                            route(json_serialized_all_tokens_2.clone(), |json_serialized| {
+                                &json_serialized.super_precise_with_hardcoded
+                            }),
+                        ),
                 )
         })
         .disable_signals()
@@ -255,6 +322,25 @@ async fn main() -> anyhow::Result<()> {
     })
     .await?;
     Ok(())
+}
+
+fn route(
+    json_serialized: Arc<RwLock<Option<JsonSerializedPrices>>>,
+    get_field: fn(&JsonSerializedPrices) -> &String,
+) -> Route {
+    web::get().to(move || {
+        let json_serialized = Arc::clone(&json_serialized);
+        async move {
+            if let Some(json_serialized) = json_serialized.read().await.as_ref() {
+                HttpResponseBuilder::new(StatusCode::OK)
+                    .content_type("application/json")
+                    .insert_header(("Cache-Control", "public, max-age=3"))
+                    .body(get_field(json_serialized).clone())
+            } else {
+                HttpResponse::InternalServerError().finish()
+            }
+        }
+    })
 }
 
 async fn load_tokens_save() -> Option<Tokens> {
