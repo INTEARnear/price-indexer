@@ -41,7 +41,7 @@ const USD_ROUTES: &[(&str, &str)] = &[
     ),
     (
         "ftv2.nekotoken.near", // NEKO
-        "REF-3804",            // NEKO-NEAR
+        "REF-3807",            // NEKO-NEAR
     ),
 ];
 
