@@ -28,3 +28,6 @@ rusty-tags.vi
 
 # Environment variables
 .env
+
+# Save files
+tokens.json
