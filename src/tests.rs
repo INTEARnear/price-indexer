@@ -1,0 +1,270 @@
+use std::str::FromStr;
+
+use sqlx::types::BigDecimal;
+
+use crate::{extract_pool_data, get_token_metadata, Tokens};
+
+#[tokio::test]
+async fn test_get_decimals() {
+    assert_eq!(
+        get_token_metadata("wrap.near".parse().unwrap())
+            .await
+            .unwrap()
+            .decimals,
+        24,
+    );
+    assert_eq!(
+        get_token_metadata("usdt.tether-token.near".parse().unwrap())
+            .await
+            .unwrap()
+            .symbol,
+        "USDt",
+    );
+    assert_eq!(
+        get_token_metadata("intel.tkn.near".parse().unwrap())
+            .await
+            .unwrap()
+            .decimals,
+        18,
+    );
+}
+
+#[tokio::test]
+async fn test_prices() {
+    // TODO split this into multiple tests
+    const NEAR_DECIMALS: u32 = 24;
+    const USD_DECIMALS: u32 = 6;
+    const INTEL_DECIMALS: u32 = 18;
+    const CHADS_DECIMALS: u32 = 18;
+
+    use intear_events::events::trade::trade_pool_change::*;
+
+    let mut tokens = Tokens::new();
+    assert!(tokens.get_price(&"wrap.near".parse().unwrap()).is_none());
+
+    // USDT pool
+    let near_usdt_pool = PoolType::Ref(RefPool::SimplePool(RefSimplePool {
+        token_account_ids: vec![
+            "wrap.near".parse().unwrap(),
+            "usdt.tether-token.near".parse().unwrap(),
+        ],
+        amounts: vec![85_000e24 as u128, 450_000e6 as u128],
+        volumes: vec![
+            RefSwapVolume {
+                input: 0,
+                output: 0,
+            },
+            RefSwapVolume {
+                input: 0,
+                output: 0,
+            },
+        ],
+        total_fee: 0,
+        exchange_fee: 0,
+        referral_fee: 0,
+        shares_total_supply: 0,
+    }));
+    let near_usdt_data = extract_pool_data(&near_usdt_pool).unwrap();
+
+    tokens
+        .update_pool("REF-3879", near_usdt_pool, near_usdt_data)
+        .await;
+    assert_eq!(
+        (tokens.get_price(&"wrap.near".parse().unwrap()).unwrap()
+            * BigDecimal::from_str(&(10u128.pow(NEAR_DECIMALS)).to_string()).unwrap()
+            / BigDecimal::from_str(&(10u128.pow(USD_DECIMALS)).to_string()).unwrap())
+        .with_prec(3)
+        .to_string(),
+        "5.29"
+    );
+
+    // NEAR pool
+    let intel_near_pool = PoolType::Ref(RefPool::SimplePool(RefSimplePool {
+        token_account_ids: vec![
+            "intel.tkn.near".parse().unwrap(),
+            "wrap.near".parse().unwrap(),
+        ],
+        amounts: vec![21_000_000_000e18 as u128, 3_000e24 as u128],
+        volumes: vec![
+            RefSwapVolume {
+                input: 0,
+                output: 0,
+            },
+            RefSwapVolume {
+                input: 0,
+                output: 0,
+            },
+        ],
+        total_fee: 0,
+        exchange_fee: 0,
+        referral_fee: 0,
+        shares_total_supply: 0,
+    }));
+    let intel_near_data = extract_pool_data(&intel_near_pool).unwrap();
+
+    tokens
+        .update_pool("REF-4663", intel_near_pool, intel_near_data)
+        .await;
+    assert_eq!(
+        (tokens
+            .get_price(&"intel.tkn.near".parse().unwrap())
+            .unwrap()
+            * BigDecimal::from_str(&(10u128.pow(INTEL_DECIMALS)).to_string()).unwrap()
+            / BigDecimal::from_str(&(10u128.pow(USD_DECIMALS)).to_string()).unwrap())
+        .with_prec(3)
+        .to_string(),
+        "0.000000756"
+    );
+
+    // Other token (intel) pool
+    let chads_intel_pool = PoolType::Ref(RefPool::SimplePool(RefSimplePool {
+        token_account_ids: vec![
+            "intel.tkn.near".parse().unwrap(),
+            "chads.tkn.near".parse().unwrap(),
+        ],
+        amounts: vec![1_666_666_666e18 as u128, 1_666e18 as u128],
+        volumes: vec![
+            RefSwapVolume {
+                input: 0,
+                output: 0,
+            },
+            RefSwapVolume {
+                input: 0,
+                output: 0,
+            },
+        ],
+        total_fee: 0,
+        exchange_fee: 0,
+        referral_fee: 0,
+        shares_total_supply: 0,
+    }));
+    let chads_intel_data = extract_pool_data(&chads_intel_pool).unwrap();
+
+    tokens
+        .update_pool("REF-4774", chads_intel_pool, chads_intel_data)
+        .await;
+    assert_eq!(
+        (tokens
+            .get_price(&"chads.tkn.near".parse().unwrap())
+            .unwrap()
+            * BigDecimal::from_str(&(10u128.pow(CHADS_DECIMALS)).to_string()).unwrap()
+            / BigDecimal::from_str(&(10u128.pow(USD_DECIMALS)).to_string()).unwrap())
+        .with_prec(3)
+        .to_string(),
+        "0.757"
+    );
+
+    // Update existing pool, lower token liquidity
+    let chads_intel_pool = PoolType::Ref(RefPool::SimplePool(RefSimplePool {
+        token_account_ids: vec![
+            "intel.tkn.near".parse().unwrap(),
+            "chads.tkn.near".parse().unwrap(),
+        ],
+        amounts: vec![2_000_000_000e18 as u128, 1_500e18 as u128],
+        volumes: vec![
+            RefSwapVolume {
+                input: 0,
+                output: 0,
+            },
+            RefSwapVolume {
+                input: 0,
+                output: 0,
+            },
+        ],
+        total_fee: 0,
+        exchange_fee: 0,
+        referral_fee: 0,
+        shares_total_supply: 0,
+    }));
+    let chads_intel_data = extract_pool_data(&chads_intel_pool).unwrap();
+
+    tokens
+        .update_pool("REF-4774", chads_intel_pool, chads_intel_data)
+        .await;
+    assert_eq!(
+        (tokens
+            .get_price(&"chads.tkn.near".parse().unwrap())
+            .unwrap()
+            * BigDecimal::from_str(&(10u128.pow(CHADS_DECIMALS)).to_string()).unwrap()
+            / BigDecimal::from_str(&(10u128.pow(USD_DECIMALS)).to_string()).unwrap())
+        .with_prec(3)
+        .to_string(),
+        "1.01"
+    );
+
+    // Add new pool with lower token liquidity, price shouldn't change
+    let intel_usdt_pool = PoolType::Ref(RefPool::SimplePool(RefSimplePool {
+        token_account_ids: vec![
+            "intel.tkn.near".parse().unwrap(),
+            "usdt.tether-token.near".parse().unwrap(),
+        ],
+        amounts: vec![20_000_000_000e18 as u128, 20_000e6 as u128],
+        volumes: vec![
+            RefSwapVolume {
+                input: 0,
+                output: 0,
+            },
+            RefSwapVolume {
+                input: 0,
+                output: 0,
+            },
+        ],
+        total_fee: 0,
+        exchange_fee: 0,
+        referral_fee: 0,
+        shares_total_supply: 0,
+    }));
+    let intel_near_data = extract_pool_data(&intel_usdt_pool).unwrap();
+
+    tokens
+        .update_pool("TEST-69", intel_usdt_pool, intel_near_data)
+        .await;
+    assert_eq!(
+        (tokens
+            .get_price(&"intel.tkn.near".parse().unwrap())
+            .unwrap()
+            * BigDecimal::from_str(&(10u128.pow(INTEL_DECIMALS)).to_string()).unwrap()
+            / BigDecimal::from_str(&(10u128.pow(USD_DECIMALS)).to_string()).unwrap())
+        .with_prec(3)
+        .to_string(),
+        "0.000000756"
+    );
+
+    // Add new pool with higher token liquidity, price should change
+    let intel_usdt_pool = PoolType::Ref(RefPool::SimplePool(RefSimplePool {
+        token_account_ids: vec![
+            "intel.tkn.near".parse().unwrap(),
+            "usdt.tether-token.near".parse().unwrap(),
+        ],
+        amounts: vec![200_000_000_000e18 as u128, 200_000e6 as u128],
+        volumes: vec![
+            RefSwapVolume {
+                input: 0,
+                output: 0,
+            },
+            RefSwapVolume {
+                input: 0,
+                output: 0,
+            },
+        ],
+        total_fee: 0,
+        exchange_fee: 0,
+        referral_fee: 0,
+        shares_total_supply: 0,
+    }));
+    let intel_near_data = extract_pool_data(&intel_usdt_pool).unwrap();
+
+    tokens
+        .update_pool("TEST-42", intel_usdt_pool, intel_near_data)
+        .await;
+    assert_eq!(
+        (tokens
+            .get_price(&"intel.tkn.near".parse().unwrap())
+            .unwrap()
+            * BigDecimal::from_str(&(10u128.pow(INTEL_DECIMALS)).to_string()).unwrap()
+            / BigDecimal::from_str(&(10u128.pow(USD_DECIMALS)).to_string()).unwrap())
+        .with_prec(3)
+        .to_string(),
+        "0.00000100"
+    );
+}
