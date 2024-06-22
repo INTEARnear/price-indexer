@@ -40,7 +40,7 @@ const USD_ROUTES: &[(&str, &str)] = &[
     ),
     (
         "meta-pool.near", // Staked NEAR
-        "REF-1923",       // STNEAR-NEAR
+        "REF-535",        // STNEAR-NEAR
     ),
     (
         "dac17f958d2ee523a2206206994597c13d831ec7.factory.bridge.near", // USDT.e
@@ -141,7 +141,6 @@ impl Tokens {
 
                 token.price_usd = calculate_price(
                     token_id.clone(),
-                    USD_TOKEN.parse().unwrap(),
                     &self.pools,
                     &self.hardcoded_usd_routes,
                     &pool,
@@ -189,7 +188,6 @@ impl Tokens {
             if let Some(main_pool) = &token.main_pool {
                 token.price_usd = calculate_price(
                     token_id.clone(),
-                    USD_TOKEN.parse().unwrap(),
                     &self.pools,
                     &self.hardcoded_usd_routes,
                     main_pool,
@@ -201,11 +199,14 @@ impl Tokens {
 
 pub fn calculate_price(
     token_id: AccountId,
-    target_token: AccountId,
     pools: &HashMap<String, (PoolType, PoolData)>,
     routes: &HashMap<AccountId, String>,
     pool: &str,
 ) -> BigDecimal {
+    if token_id == USD_TOKEN {
+        return BigDecimal::from(1);
+    }
+
     let mut current_token_id = token_id.clone();
     let mut current_pool_data = &pools.get(pool).unwrap().1;
     let mut current_amount = BigDecimal::from(1);
@@ -221,7 +222,7 @@ pub fn calculate_price(
         )
     };
     loop {
-        if current_token_id == target_token {
+        if current_token_id == USD_TOKEN {
             break current_amount;
         }
         if let Some(next_pool) = routes.get(&current_token_id) {
@@ -242,7 +243,7 @@ pub fn calculate_price(
                 )
             };
         } else {
-            log::error!("USD route not found for {current_token_id}");
+            log::error!("USD route not found for {current_token_id} (for {token_id})");
             break BigDecimal::from(0);
         }
     }
