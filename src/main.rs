@@ -5,7 +5,12 @@ mod token_metadata;
 mod tokens;
 mod utils;
 
-use std::{collections::HashMap, env, str::FromStr, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashMap},
+    env,
+    str::FromStr,
+    sync::Arc,
+};
 
 use actix_web::{http::StatusCode, web, App, HttpResponse, HttpResponseBuilder, HttpServer};
 use inevents_redis::RedisEventStream;
@@ -16,6 +21,7 @@ use intear_events::events::{
     },
     trade::trade_pool_change::{TradePoolChangeEvent, TradePoolChangeEventData},
 };
+use itertools::Itertools;
 use pool_data::{extract_pool_data, PoolData};
 use redis::{aio::ConnectionManager, Client};
 use serde::Deserialize;
@@ -129,6 +135,10 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
             drop(last_block_height);
+            let ref_compatibility_format = ref_compatibility_format
+                .into_iter()
+                .sorted_by_key(|(token_id, _)| token_id.to_string())
+                .collect::<BTreeMap<_, _>>();
             let json_serialized_prices_only = serde_json::to_string(&prices_only).unwrap();
             let json_serialized_ref_compatibility_format =
                 serde_json::to_string(&ref_compatibility_format).unwrap();
@@ -159,6 +169,7 @@ async fn main() -> anyhow::Result<()> {
                             {
                                 HttpResponseBuilder::new(StatusCode::OK)
                                     .content_type("application/json")
+                                    .insert_header(("Cache-Control", "public, max-age=3"))
                                     .body(
                                         json_serialized_all_tokens.ref_compatibility_format.clone(),
                                     )
@@ -178,6 +189,7 @@ async fn main() -> anyhow::Result<()> {
                             {
                                 HttpResponseBuilder::new(StatusCode::OK)
                                     .content_type("application/json")
+                                    .insert_header(("Cache-Control", "public, max-age=3"))
                                     .body(json_serialized_all_tokens.prices_only.clone())
                             } else {
                                 HttpResponse::InternalServerError().finish()
@@ -195,6 +207,7 @@ async fn main() -> anyhow::Result<()> {
                             {
                                 HttpResponseBuilder::new(StatusCode::OK)
                                     .content_type("application/json")
+                                    .insert_header(("Cache-Control", "public, max-age=3"))
                                     .body(json_serialized_all_tokens.super_precise.clone())
                             } else {
                                 HttpResponse::InternalServerError().finish()
