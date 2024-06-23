@@ -427,13 +427,15 @@ async fn process_token(
     let token_read = tokens.read().await;
     let mut events = Vec::new();
     for token_id in [&pool_data.tokens.0, &pool_data.tokens.1] {
-        let price_event = PriceTokenEventData {
-            block_height: event.block_height,
-            token: token_id.clone(),
-            price_usd: token_read.get_price(token_id).unwrap(),
-            timestamp_nanosec: event.block_timestamp_nanosec,
-        };
-        events.push(price_event);
+        if let Some(price_usd) = token_read.get_price(token_id) {
+            let price_event = PriceTokenEventData {
+                block_height: event.block_height,
+                token: token_id.clone(),
+                price_usd,
+                timestamp_nanosec: event.block_timestamp_nanosec,
+            };
+            events.push(price_event);
+        }
     }
     drop(token_read);
 

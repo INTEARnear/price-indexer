@@ -50,6 +50,18 @@ const USD_ROUTES: &[(&str, &str)] = &[
         "a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.factory.bridge.near", // USDC.e
         "REF-3",                                                        // NEAR-USDC.e
     ),
+    (
+        "a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.factory.bridge.near", // USDC.e
+        "REF-3",                                                        // NEAR-USDC.e
+    ),
+    (
+        "nkok.tkn.near", // nKOK
+        "REF-4820",      // nKOK-NEAR
+    ),
+    (
+        "avb.tkn.near", // AVB
+        "REF-20",       // AVB-NEAR
+    ),
 ];
 
 #[derive(Debug, Serialize, Deserialize)]
