@@ -26,3 +26,4 @@ cached = { version = "0.51.4", features = [ "async", "async_tokio_rt_multi_threa
 actix-web = "4.8.0"
 rustls = "0.22.4"
 rustls-pemfile = "2.1.2"
+actix-cors = "0.7.0"

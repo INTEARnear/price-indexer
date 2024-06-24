@@ -1,6 +1,4 @@
-use std::str::FromStr;
-
-use sqlx::types::BigDecimal;
+use inindexer::near_indexer_primitives::types::AccountId;
 
 use crate::{extract_pool_data, get_token_metadata, Tokens};
 
@@ -32,15 +30,14 @@ async fn test_get_decimals() {
 #[tokio::test]
 async fn test_prices() {
     // TODO split this into multiple tests
-    const NEAR_DECIMALS: u32 = 24;
-    const USD_DECIMALS: u32 = 6;
-    const INTEL_DECIMALS: u32 = 18;
-    const CHADS_DECIMALS: u32 = 18;
 
     use intear_events::events::trade::trade_pool_change::*;
 
     let mut tokens = Tokens::new();
-    assert!(tokens.get_price(&"wrap.near".parse().unwrap()).is_none());
+    assert!(tokens
+        .tokens
+        .get(&"wrap.near".parse::<AccountId>().unwrap())
+        .is_none());
 
     // USDT pool
     let near_usdt_pool = PoolType::Ref(RefPool::SimplePool(RefSimplePool {
@@ -70,11 +67,13 @@ async fn test_prices() {
         .update_pool("REF-3879", near_usdt_pool, near_usdt_data)
         .await;
     assert_eq!(
-        (tokens.get_price(&"wrap.near".parse().unwrap()).unwrap()
-            * BigDecimal::from_str(&(10u128.pow(NEAR_DECIMALS)).to_string()).unwrap()
-            / BigDecimal::from_str(&(10u128.pow(USD_DECIMALS)).to_string()).unwrap())
-        .with_prec(3)
-        .to_string(),
+        tokens
+            .tokens
+            .get(&"wrap.near".parse::<AccountId>().unwrap())
+            .unwrap()
+            .price_usd
+            .with_prec(3)
+            .to_string(),
         "5.29"
     );
 
@@ -106,13 +105,13 @@ async fn test_prices() {
         .update_pool("REF-4663", intel_near_pool, intel_near_data)
         .await;
     assert_eq!(
-        (tokens
-            .get_price(&"intel.tkn.near".parse().unwrap())
+        tokens
+            .tokens
+            .get(&"intel.tkn.near".parse::<AccountId>().unwrap())
             .unwrap()
-            * BigDecimal::from_str(&(10u128.pow(INTEL_DECIMALS)).to_string()).unwrap()
-            / BigDecimal::from_str(&(10u128.pow(USD_DECIMALS)).to_string()).unwrap())
-        .with_prec(3)
-        .to_string(),
+            .price_usd
+            .with_prec(3)
+            .to_string(),
         "0.000000756"
     );
 
@@ -144,13 +143,13 @@ async fn test_prices() {
         .update_pool("REF-4774", chads_intel_pool, chads_intel_data)
         .await;
     assert_eq!(
-        (tokens
-            .get_price(&"chads.tkn.near".parse().unwrap())
+        tokens
+            .tokens
+            .get(&"chads.tkn.near".parse::<AccountId>().unwrap())
             .unwrap()
-            * BigDecimal::from_str(&(10u128.pow(CHADS_DECIMALS)).to_string()).unwrap()
-            / BigDecimal::from_str(&(10u128.pow(USD_DECIMALS)).to_string()).unwrap())
-        .with_prec(3)
-        .to_string(),
+            .price_usd
+            .with_prec(3)
+            .to_string(),
         "0.757"
     );
 
@@ -182,13 +181,13 @@ async fn test_prices() {
         .update_pool("REF-4774", chads_intel_pool, chads_intel_data)
         .await;
     assert_eq!(
-        (tokens
-            .get_price(&"chads.tkn.near".parse().unwrap())
+        tokens
+            .tokens
+            .get(&"chads.tkn.near".parse::<AccountId>().unwrap())
             .unwrap()
-            * BigDecimal::from_str(&(10u128.pow(CHADS_DECIMALS)).to_string()).unwrap()
-            / BigDecimal::from_str(&(10u128.pow(USD_DECIMALS)).to_string()).unwrap())
-        .with_prec(3)
-        .to_string(),
+            .price_usd
+            .with_prec(3)
+            .to_string(),
         "1.01"
     );
 
@@ -220,13 +219,13 @@ async fn test_prices() {
         .update_pool("TEST-69", intel_usdt_pool, intel_near_data)
         .await;
     assert_eq!(
-        (tokens
-            .get_price(&"intel.tkn.near".parse().unwrap())
+        tokens
+            .tokens
+            .get(&"intel.tkn.near".parse::<AccountId>().unwrap())
             .unwrap()
-            * BigDecimal::from_str(&(10u128.pow(INTEL_DECIMALS)).to_string()).unwrap()
-            / BigDecimal::from_str(&(10u128.pow(USD_DECIMALS)).to_string()).unwrap())
-        .with_prec(3)
-        .to_string(),
+            .price_usd
+            .with_prec(3)
+            .to_string(),
         "0.000000756"
     );
 
@@ -258,13 +257,13 @@ async fn test_prices() {
         .update_pool("TEST-42", intel_usdt_pool, intel_near_data)
         .await;
     assert_eq!(
-        (tokens
-            .get_price(&"intel.tkn.near".parse().unwrap())
+        tokens
+            .tokens
+            .get(&"intel.tkn.near".parse::<AccountId>().unwrap())
             .unwrap()
-            * BigDecimal::from_str(&(10u128.pow(INTEL_DECIMALS)).to_string()).unwrap()
-            / BigDecimal::from_str(&(10u128.pow(USD_DECIMALS)).to_string()).unwrap())
-        .with_prec(3)
-        .to_string(),
+            .price_usd
+            .with_prec(3)
+            .to_string(),
         "0.00000100"
     );
 }

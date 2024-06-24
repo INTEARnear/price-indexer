@@ -8,17 +8,19 @@ use sqlx::types::BigDecimal;
 
 use crate::{
     pool_data::PoolData,
-    token_metadata::{get_token_metadata, TokenMetadata},
-    utils::serde_bigdecimal,
+    token::{calculate_price, get_hardcoded_price_usd, Token},
+    token_metadata::get_token_metadata,
 };
 
 /// Used to ignore warnings for this token.
 const KNOWN_TOKENS_WITH_NO_POOL: &[&str] = &[];
 
+pub const USD_TOKEN: &str = "usdt.tether-token.near";
+pub const USD_DECIMALS: u32 = 6;
+
 // Feel free to add other tokens in ROUTES if you're sure that the pools
 // won't unexpectedly go to 0 without this change in the code. If the
 // pool here is going to be 0, change it before removing liquidity.
-pub const USD_TOKEN: &str = "usdt.tether-token.near";
 const USD_ROUTES: &[(&str, &str)] = &[
     ("wrap.near", "REF-3879"), // NEAR-USDt
     // TODO FRAX when stableswap is implemented, but no one uses it anyway so not a priority
@@ -66,34 +68,24 @@ const USD_ROUTES: &[(&str, &str)] = &[
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Tokens {
-    #[serde(skip, default = "create_hardcoded_usd_routes")]
-    pub hardcoded_usd_routes: HashMap<AccountId, String>,
+    #[serde(skip, default = "create_routes_to_usd")]
+    pub routes_to_usd: HashMap<AccountId, String>,
 
     pub tokens: HashMap<AccountId, Token>,
     pub pools: HashMap<String, (PoolType, PoolData)>,
 }
 
-fn create_hardcoded_usd_routes() -> HashMap<AccountId, String> {
+fn create_routes_to_usd() -> HashMap<AccountId, String> {
     USD_ROUTES
         .iter()
         .map(|(token_id, pool_id)| (token_id.parse().unwrap(), pool_id.to_string()))
         .collect()
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Token {
-    #[serde(with = "serde_bigdecimal")]
-    pub price_usd: BigDecimal,
-    /// 'Main pool' is a pool that leads to a token that can be farther converted
-    /// into [`USD_TOKEN`] through one of [`USD_ROUTES`].
-    pub main_pool: Option<String>,
-    pub metadata: TokenMetadata,
-}
-
 impl Tokens {
     pub fn new() -> Self {
         Self {
-            hardcoded_usd_routes: create_hardcoded_usd_routes(),
+            routes_to_usd: create_routes_to_usd(),
             tokens: HashMap::new(),
             pools: HashMap::new(),
         }
@@ -106,14 +98,14 @@ impl Tokens {
             if pool_data.tokens.0 == *token_id {
                 let liquidity = pool_data.liquidity.0.clone();
                 if liquidity > max_liquidity
-                    && (self.hardcoded_usd_routes.contains_key(&pool_data.tokens.1)
+                    && (self.routes_to_usd.contains_key(&pool_data.tokens.1)
                         || pool_data.tokens.1 == USD_TOKEN)
                 {
                     max_liquidity = liquidity;
                     max_pool = Some(pool_id.clone());
                 }
             } else if pool_data.tokens.1 == *token_id
-                && (self.hardcoded_usd_routes.contains_key(&pool_data.tokens.0)
+                && (self.routes_to_usd.contains_key(&pool_data.tokens.0)
                     || pool_data.tokens.0 == USD_TOKEN)
             {
                 let liquidity = pool_data.liquidity.1.clone();
@@ -140,7 +132,9 @@ impl Tokens {
                     self.tokens.insert(
                         token_id.clone(),
                         Token {
+                            price_usd_raw: BigDecimal::from(0),
                             price_usd: BigDecimal::from(0),
+                            price_usd_hardcoded: BigDecimal::from(0),
                             main_pool: None,
                             metadata,
                         },
@@ -151,12 +145,13 @@ impl Tokens {
                     continue;
                 };
 
-                token.price_usd = calculate_price(
-                    token_id.clone(),
-                    &self.pools,
-                    &self.hardcoded_usd_routes,
-                    &pool,
-                );
+                token.price_usd_raw =
+                    calculate_price(&token_id, &self.pools, &self.routes_to_usd, &pool);
+                token.price_usd = token.price_usd_raw.clone()
+                    * BigDecimal::from_str(&(10u128.pow(token.metadata.decimals)).to_string())
+                        .unwrap()
+                    / BigDecimal::from_str(&(10u128.pow(USD_DECIMALS)).to_string()).unwrap();
+                token.price_usd_hardcoded = get_hardcoded_price_usd(&token_id, &token.price_usd);
                 token.main_pool = Some(pool);
             } else if let Some(token) = self.tokens.get_mut(&token_id) {
                 token.main_pool = None;
@@ -164,7 +159,9 @@ impl Tokens {
                 self.tokens.insert(
                     token_id.clone(),
                     Token {
+                        price_usd_raw: BigDecimal::from(0),
                         price_usd: BigDecimal::from(0),
+                        price_usd_hardcoded: BigDecimal::from(0),
                         main_pool: None,
                         metadata,
                     },
@@ -173,15 +170,6 @@ impl Tokens {
                 log::warn!("Couldn't get metadata for {token_id}");
             }
         }
-    }
-
-    pub fn get_price(&self, token_id: &AccountId) -> Option<BigDecimal> {
-        let token = self.tokens.get(token_id)?;
-        Some(if token_id == USD_TOKEN {
-            1.into()
-        } else {
-            token.price_usd.clone()
-        })
     }
 
     pub fn recalculate_prices(&mut self) {
@@ -198,65 +186,14 @@ impl Tokens {
         {
             let token = self.tokens.get_mut(&token_id).unwrap();
             if let Some(main_pool) = &token.main_pool {
-                token.price_usd = calculate_price(
-                    token_id.clone(),
-                    &self.pools,
-                    &self.hardcoded_usd_routes,
-                    main_pool,
-                );
+                token.price_usd_raw =
+                    calculate_price(&token_id, &self.pools, &self.routes_to_usd, main_pool);
+                token.price_usd = token.price_usd_raw.clone()
+                    * BigDecimal::from_str(&(10u128.pow(token.metadata.decimals)).to_string())
+                        .unwrap()
+                    / BigDecimal::from_str(&(10u128.pow(USD_DECIMALS)).to_string()).unwrap();
+                token.price_usd_hardcoded = get_hardcoded_price_usd(&token_id, &token.price_usd);
             }
-        }
-    }
-}
-
-pub fn calculate_price(
-    token_id: AccountId,
-    pools: &HashMap<String, (PoolType, PoolData)>,
-    routes: &HashMap<AccountId, String>,
-    pool: &str,
-) -> BigDecimal {
-    if token_id == USD_TOKEN {
-        return BigDecimal::from(1);
-    }
-
-    let mut current_token_id = token_id.clone();
-    let mut current_pool_data = &pools.get(pool).unwrap().1;
-    let mut current_amount = BigDecimal::from(1);
-    (current_token_id, current_amount) = if current_pool_data.tokens.0 == current_token_id {
-        (
-            current_pool_data.tokens.1.clone(),
-            current_amount * current_pool_data.ratios.1.clone(),
-        )
-    } else {
-        (
-            current_pool_data.tokens.0.clone(),
-            current_amount * current_pool_data.ratios.0.clone(),
-        )
-    };
-    loop {
-        if current_token_id == USD_TOKEN {
-            break current_amount;
-        }
-        if let Some(next_pool) = routes.get(&current_token_id) {
-            current_pool_data = if let Some((_pool, data)) = pools.get(next_pool) {
-                data
-            } else {
-                break BigDecimal::from(0);
-            };
-            (current_token_id, current_amount) = if current_pool_data.tokens.0 == current_token_id {
-                (
-                    current_pool_data.tokens.1.clone(),
-                    current_amount * current_pool_data.ratios.1.clone(),
-                )
-            } else {
-                (
-                    current_pool_data.tokens.0.clone(),
-                    current_amount * current_pool_data.ratios.0.clone(),
-                )
-            };
-        } else {
-            log::error!("USD route not found for {current_token_id} (for {token_id})");
-            break BigDecimal::from(0);
         }
     }
 }

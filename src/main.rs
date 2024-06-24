@@ -1,6 +1,7 @@
 mod pool_data;
 #[cfg(test)]
 mod tests;
+mod token;
 mod token_metadata;
 mod tokens;
 mod utils;
@@ -13,8 +14,10 @@ use std::{
     sync::Arc,
 };
 
+use actix_cors::Cors;
 use actix_web::{http::StatusCode, web, App, HttpResponse, HttpResponseBuilder, HttpServer, Route};
 use inevents_redis::RedisEventStream;
+use inindexer::near_indexer_primitives::types::AccountId;
 use intear_events::events::{
     price::{
         price_pool::{PricePoolEvent, PricePoolEventData},
@@ -26,50 +29,13 @@ use itertools::Itertools;
 use pool_data::{extract_pool_data, PoolData};
 use redis::{aio::ConnectionManager, Client};
 use serde::Deserialize;
-use sqlx::types::BigDecimal;
+use token::Token;
 use token_metadata::get_token_metadata;
-use tokens::{Tokens, USD_TOKEN};
+use tokens::Tokens;
 use tokio::fs;
 use tokio::sync::{Mutex, RwLock};
 
 const MAX_REDIS_EVENT_BUFFER_SIZE: usize = 10_000;
-
-type GetTokenPriceFn = fn(&BigDecimal) -> BigDecimal;
-const HARDCODED_TOKEN_PRICES: &[(&str, GetTokenPriceFn)] = &[
-    ("usdt.tether-token.near", stablecoin_price), // USDt
-    (
-        "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1", // USDC
-        stablecoin_price,
-    ),
-    (
-        "dac17f958d2ee523a2206206994597c13d831ec7.factory.bridge.near", // USDT.e
-        stablecoin_price,
-    ),
-    (
-        "a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.factory.bridge.near", // USDC.e
-        stablecoin_price,
-    ),
-    (
-        "853d955acef822db058eb8505911ed77f175b99e.factory.bridge.near", // FRAX
-        stablecoin_price,
-    ),
-    ("pre.meteor-token.near", |_| 0.into()), // MEPT
-                                             // TODO fetch HOT futures price from WhiteBIT
-                                             // TODO stnear and linear
-];
-
-fn stablecoin_price(actual_price: &BigDecimal) -> BigDecimal {
-    const STABLECOIN_BASE_PRICE: f64 = 1.0;
-    const STABLECOIN_MAX_PRICE_DIFFERENCE: f64 = 0.01;
-
-    let price = actual_price.clone();
-    let price_f64 = f64::from_str(&price.to_string()).unwrap();
-    if (price_f64 - STABLECOIN_BASE_PRICE).abs() < STABLECOIN_MAX_PRICE_DIFFERENCE {
-        1.into()
-    } else {
-        price
-    }
-}
 
 #[derive(Debug, Deserialize)]
 struct JsonSerializedPrices {
@@ -120,18 +86,9 @@ async fn main() -> anyhow::Result<()> {
     let json_serialized_all_tokens = Arc::new(RwLock::new(None));
     let json_serialized_all_tokens_2 = Arc::clone(&json_serialized_all_tokens);
     tokio::spawn(async move {
-        let usd_metadata = get_token_metadata(USD_TOKEN.parse().unwrap())
-            .await
-            .expect("Failed to get USD metadata");
         loop {
             tokens_clone.write().await.recalculate_prices();
-            let prices = tokens_clone
-                .read()
-                .await
-                .tokens
-                .iter()
-                .map(|(token_id, token)| (token_id.clone(), token.clone()))
-                .collect::<HashMap<_, _>>();
+            let tokens = tokens_clone.read().await;
 
             let last_block_height = last_event_block_height_2.lock().await;
 
@@ -143,14 +100,9 @@ async fn main() -> anyhow::Result<()> {
             let mut ref_compatibility_format_with_hardcoded = HashMap::new();
             let mut super_precise_with_hardcoded = HashMap::new();
 
-            for (token_id, token) in prices {
+            for (token_id, token) in tokens.tokens.iter() {
                 if let Ok(token_metadata) = get_token_metadata(token_id.clone()).await {
-                    let price = &token.price_usd;
-                    let price_usd = price
-                        * BigDecimal::from_str(&(10u128.pow(token_metadata.decimals)).to_string())
-                            .unwrap()
-                        / BigDecimal::from_str(&(10u128.pow(usd_metadata.decimals)).to_string())
-                            .unwrap();
+                    let price_usd = &token.price_usd;
 
                     let price_f64 = f64::from_str(&price_usd.to_string()).unwrap();
                     let price_ref_scale = price_usd.with_scale(12);
@@ -166,39 +118,21 @@ async fn main() -> anyhow::Result<()> {
                     );
                     super_precise.insert(token_id.clone(), price_usd.to_string());
 
-                    if let Some(hardcoded_price_fn) = HARDCODED_TOKEN_PRICES
-                        .iter()
-                        .find(|(hardcoded_token_id, _)| hardcoded_token_id == &token_id)
-                        .map(|(_, price_fn)| price_fn)
-                    {
-                        let price_usd = hardcoded_price_fn(&price_usd);
-                        let price_f64 = f64::from_str(&price_usd.to_string()).unwrap();
-                        let price_ref_scale = price_usd.with_scale(12);
-                        prices_only_with_hardcoded.insert(token_id.clone(), price_f64);
-                        ref_compatibility_format_with_hardcoded.insert(
-                            token_id.clone(),
-                            serde_json::json!({
-                                "price": price_ref_scale.to_string(),
-                                "symbol": token.metadata.symbol,
-                                "decimal": token_metadata.decimals,
-                            }),
-                        );
-                        super_precise_with_hardcoded
-                            .insert(token_id.clone(), price_usd.to_string());
-                    } else {
-                        // Insert the same price as the non-hardcoded version
-                        prices_only_with_hardcoded.insert(token_id.clone(), price_f64);
-                        ref_compatibility_format_with_hardcoded.insert(
-                            token_id.clone(),
-                            serde_json::json!({
-                                "price": price_ref_scale.to_string(),
-                                "symbol": token.metadata.symbol,
-                                "decimal": token_metadata.decimals,
-                            }),
-                        );
-                        super_precise_with_hardcoded
-                            .insert(token_id.clone(), price_usd.to_string());
-                    }
+                    let price_usd_hardcoded = &token.price_usd_hardcoded;
+                    let price_f64_hardcoded =
+                        f64::from_str(&price_usd_hardcoded.to_string()).unwrap();
+                    let price_ref_scale_hardcoded = price_usd_hardcoded.with_scale(12);
+                    prices_only_with_hardcoded.insert(token_id.clone(), price_f64_hardcoded);
+                    ref_compatibility_format_with_hardcoded.insert(
+                        token_id.clone(),
+                        serde_json::json!({
+                            "price": price_ref_scale_hardcoded.to_string(),
+                            "symbol": token.metadata.symbol,
+                            "decimal": token_metadata.decimals,
+                        }),
+                    );
+                    super_precise_with_hardcoded
+                        .insert(token_id.clone(), price_usd_hardcoded.to_string());
 
                     if let Some((block_height, block_timestamp_nanosec)) = *last_block_height {
                         token_price_stream
@@ -206,8 +140,8 @@ async fn main() -> anyhow::Result<()> {
                                 0,
                                 PriceTokenEventData {
                                     block_height,
-                                    token: token_id,
-                                    price_usd,
+                                    token: token_id.clone(),
+                                    price_usd: token.price_usd_raw.clone(),
                                     timestamp_nanosec: block_timestamp_nanosec,
                                 },
                                 MAX_REDIS_EVENT_BUFFER_SIZE,
@@ -218,6 +152,7 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
             drop(last_block_height);
+            drop(tokens);
             let ref_compatibility_format = ref_compatibility_format
                 .into_iter()
                 .sorted_by_key(|(token_id, _)| token_id.to_string())
@@ -241,6 +176,7 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
+    let tokens_2 = Arc::clone(&tokens);
     tokio::spawn(async move {
         let tls_config = if let Ok(files) = std::env::var("SSL") {
             #[allow(clippy::iter_nth_zero)]
@@ -266,46 +202,88 @@ async fn main() -> anyhow::Result<()> {
         };
 
         let server = HttpServer::new(move || {
+            let tokens = Arc::clone(&tokens_2);
+            let json_serialized_all_tokens = Arc::clone(&json_serialized_all_tokens_2);
             App::new()
+                .wrap(actix_web::middleware::Logger::new(r#"%a "%r" (forwarded from %{r}a) %s %b Referrer: "%{Referer}i" User-Agent: "%{User-Agent}i" %T"#))
+                .wrap(Cors::default().allow_any_origin().allow_any_method().allow_any_header())
                 .route(
                     "/list-token-price",
-                    route(json_serialized_all_tokens_2.clone(), |json_serialized| {
+                    cached_route(Arc::clone(&json_serialized_all_tokens), |json_serialized| {
                         &json_serialized.ref_compatibility_format
                     }),
                 )
                 .route(
                     "/prices",
-                    route(json_serialized_all_tokens_2.clone(), |json_serialized| {
+                    cached_route(Arc::clone(&json_serialized_all_tokens), |json_serialized| {
                         &json_serialized.prices_only
                     }),
                 )
                 .route(
                     "/super-precise",
-                    route(json_serialized_all_tokens_2.clone(), |json_serialized| {
+                    cached_route(Arc::clone(&json_serialized_all_tokens), |json_serialized| {
                         &json_serialized.super_precise
                     }),
                 )
+                .route("/get-token-price", price_route(Arc::clone(&tokens), |token_id, token| {
+                    HttpResponse::Ok().content_type("text/html; charset=utf8") // why does ref send this as html
+                        .insert_header(("Cache-Control", "public, max-age=1"))
+                        .body(format!(r#"{{"token_contract_id": "{token_id}", "price": "{}"}}"#, token.price_usd.with_scale(12)))
+                }, Some(|token_id| {
+                    HttpResponse::Ok().content_type("text/html; charset=utf8")
+                        .insert_header(("Cache-Control", "public, max-age=1"))
+                        .body(format!(r#"{{"token_contract_id": "{token_id}", "price": "N/A"}}"#))
+                })))
+                .route("/price", price_route(Arc::clone(&tokens), |_, token| {
+                    HttpResponse::Ok()
+                        .insert_header(("Cache-Control", "public, max-age=1"))
+                        .json(token.price_usd.to_string().parse::<f64>().unwrap())
+                }, None))
+                .route("/super-precise-price", price_route(Arc::clone(&tokens), |_, token| {
+                    HttpResponse::Ok()
+                        .insert_header(("Cache-Control", "public, max-age=1"))
+                        .json(token.price_usd.to_string())
+                }, None))
                 .service(
                     web::scope("/hardcoded")
                         .route(
                             "/list-token-price",
-                            route(json_serialized_all_tokens_2.clone(), |json_serialized| {
+                            cached_route(Arc::clone(&json_serialized_all_tokens), |json_serialized| {
                                 &json_serialized.ref_compatibility_format_with_hardcoded
                             }),
                         )
                         .route(
                             "/prices",
-                            route(json_serialized_all_tokens_2.clone(), |json_serialized| {
+                            cached_route(Arc::clone(&json_serialized_all_tokens), |json_serialized| {
                                 &json_serialized.prices_only_with_hardcoded
                             }),
                         )
                         .route(
                             "/super-precise",
-                            route(json_serialized_all_tokens_2.clone(), |json_serialized| {
+                            cached_route(Arc::clone(&json_serialized_all_tokens), |json_serialized| {
                                 &json_serialized.super_precise_with_hardcoded
                             }),
-                        ),
-                )
+                        )
+                        .route("/get-token-price", price_route(Arc::clone(&tokens), |token_id, token| {
+                            HttpResponse::Ok().content_type("text/html; charset=utf8") // why does ref send this as html
+                                .insert_header(("Cache-Control", "public, max-age=1"))
+                                .body(format!(r#"{{"token_contract_id": "{token_id}", "price": "{}"}}"#, token.price_usd_hardcoded.with_scale(12)))
+                        }, Some(|token_id| {
+                            HttpResponse::Ok().content_type("text/html; charset=utf8")
+                                .insert_header(("Cache-Control", "public, max-age=1"))
+                                .body(format!(r#"{{"token_contract_id": "{token_id}", "price": "N/A"}}"#))
+                        })))
+                        .route("/price", price_route(Arc::clone(&tokens), |_, token| {
+                            HttpResponse::Ok()
+                                .insert_header(("Cache-Control", "public, max-age=1"))
+                                .json(token.price_usd_hardcoded.to_string().parse::<f64>().unwrap())
+                        }, None))
+                        .route("/super-precise-price", price_route(Arc::clone(&tokens), |_, token| {
+                            HttpResponse::Ok()
+                                .insert_header(("Cache-Control", "public, max-age=1"))
+                                .json(token.price_usd_hardcoded.to_string())
+                        }, None)),
+                    )
         });
 
         let server = if let Some(tls_config) = tls_config {
@@ -361,7 +339,7 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn route(
+fn cached_route(
     json_serialized: Arc<RwLock<Option<JsonSerializedPrices>>>,
     get_field: fn(&JsonSerializedPrices) -> &String,
 ) -> Route {
@@ -378,6 +356,32 @@ fn route(
             }
         }
     })
+}
+
+fn price_route(
+    tokens: Arc<RwLock<Tokens>>,
+    respond: fn(AccountId, &Token) -> HttpResponse,
+    respond_404: Option<fn(AccountId) -> HttpResponse>,
+) -> Route {
+    web::get().to(move |query: web::Query<TokenIdWrapper>| {
+        let token_id = query.into_inner().token_id;
+        let tokens = Arc::clone(&tokens);
+        async move {
+            let tokens = tokens.read().await;
+            if let Some(token) = tokens.tokens.get(&token_id) {
+                respond(token_id, token)
+            } else if let Some(respond_404) = respond_404 {
+                respond_404(token_id)
+            } else {
+                HttpResponse::NotFound().finish()
+            }
+        }
+    })
+}
+
+#[derive(Debug, Deserialize)]
+struct TokenIdWrapper {
+    token_id: AccountId,
 }
 
 async fn load_tokens_save() -> Option<Tokens> {
@@ -427,11 +431,11 @@ async fn process_token(
     let token_read = tokens.read().await;
     let mut events = Vec::new();
     for token_id in [&pool_data.tokens.0, &pool_data.tokens.1] {
-        if let Some(price_usd) = token_read.get_price(token_id) {
+        if let Some(token) = token_read.tokens.get(token_id) {
             let price_event = PriceTokenEventData {
                 block_height: event.block_height,
                 token: token_id.clone(),
-                price_usd,
+                price_usd: token.price_usd_raw.clone(),
                 timestamp_nanosec: event.block_timestamp_nanosec,
             };
             events.push(price_event);
