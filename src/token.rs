@@ -49,9 +49,9 @@ fn stablecoin_price(actual_price_usd: &BigDecimal) -> BigDecimal {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Token {
-    #[serde(with = "serde_bigdecimal")]
+    #[serde(with = "serde_bigdecimal", default)]
     pub price_usd_raw: BigDecimal,
-    #[serde(with = "serde_bigdecimal")]
+    #[serde(with = "serde_bigdecimal", default)]
     pub price_usd: BigDecimal,
     #[serde(with = "serde_bigdecimal", default)]
     pub price_usd_hardcoded: BigDecimal,
