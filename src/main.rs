@@ -148,7 +148,6 @@ async fn main() -> anyhow::Result<()> {
                                 },
                                 MAX_REDIS_EVENT_BUFFER_SIZE,
                             )
-                            .await
                             .expect("Failed to emit price token event");
                     }
                 }
@@ -244,7 +243,6 @@ async fn process_pool(
     };
     price_stream
         .emit_event(event.block_height, price_event, MAX_REDIS_EVENT_BUFFER_SIZE)
-        .await
         .expect("Failed to emit price pool event");
 }
 
@@ -278,7 +276,6 @@ async fn process_token(
     for event in events {
         price_stream
             .emit_event(event.block_height, event, MAX_REDIS_EVENT_BUFFER_SIZE)
-            .await
             .expect("Failed to emit price token event");
     }
 }
