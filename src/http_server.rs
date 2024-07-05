@@ -115,6 +115,15 @@ pub async fn launch_http_server(
                             .json(token.price_usd_hardcoded.to_string())
                     }, None)),
                 )
+                .route("/token", web::get().to(move |query: web::Query<TokenIdWrapper>| {
+                    let tokens = Arc::clone(&tokens);
+                    async move {
+                        let tokens = tokens.read().await;
+                        HttpResponse::Ok()
+                            .insert_header(("Cache-Control", "public, max-age=3600"))
+                            .json(tokens.tokens.get(&query.token_id))
+                    }
+                }))
     });
 
     let server = if let Some(tls_config) = tls_config {

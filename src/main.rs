@@ -1,5 +1,6 @@
 mod http_server;
 mod pool_data;
+mod supply;
 #[cfg(test)]
 mod tests;
 mod token;
@@ -27,6 +28,7 @@ use itertools::Itertools;
 use pool_data::{extract_pool_data, PoolData};
 use redis::{aio::ConnectionManager, Client};
 use serde::Deserialize;
+use supply::{get_circulating_supply, get_total_supply};
 use token_metadata::get_token_metadata;
 use tokens::Tokens;
 use tokio::fs;
@@ -54,11 +56,7 @@ async fn main() -> anyhow::Result<()> {
         .init()
         .unwrap();
 
-    let tokens = if let Some(tokens) = load_tokens_save().await {
-        tokens
-    } else {
-        Tokens::new()
-    };
+    let tokens = load_tokens_save().await.expect("Failed to load tokens");
     let tokens = Arc::new(RwLock::new(tokens));
 
     let redis_connection = ConnectionManager::new(Client::open(
@@ -78,7 +76,7 @@ async fn main() -> anyhow::Result<()> {
         PriceTokenEvent::ID.to_string(),
     );
 
-    let last_event_block_height_2 = Arc::new(Mutex::new(None));
+    let block_lock_2 = Arc::new(Mutex::new(None));
 
     let json_serialized_all_tokens = Arc::new(RwLock::new(None));
 
@@ -89,10 +87,9 @@ async fn main() -> anyhow::Result<()> {
 
     tokio::spawn(async move {
         loop {
-            tokens_clone.write().await.recalculate_prices();
-            let tokens = tokens_clone.read().await;
+            let mut tokens = tokens_clone.write().await;
 
-            let last_block_height = last_event_block_height_2.lock().await;
+            tokens.recalculate_prices();
 
             let mut prices_only = HashMap::new();
             let mut ref_compatibility_format = HashMap::new();
@@ -101,6 +98,21 @@ async fn main() -> anyhow::Result<()> {
             let mut prices_only_with_hardcoded = HashMap::new();
             let mut ref_compatibility_format_with_hardcoded = HashMap::new();
             let mut super_precise_with_hardcoded = HashMap::new();
+
+            for (token_id, token) in tokens.tokens.iter_mut() {
+                match get_total_supply(token_id).await {
+                    Ok(total_supply) => token.total_supply = total_supply,
+                    Err(e) => log::warn!("Failed to get total supply for {token_id}: {e:?}"),
+                }
+                match get_circulating_supply(token_id).await {
+                    Ok(circulating_supply) => token.circulating_supply = circulating_supply,
+                    Err(e) => log::warn!("Failed to get circulating supply for {token_id}: {e:?}"),
+                }
+            }
+
+            drop(tokens);
+            let tokens = tokens_clone.read().await;
+            let block_lock = block_lock_2.lock().await;
 
             for (token_id, token) in tokens.tokens.iter() {
                 if let Ok(token_metadata) = get_token_metadata(token_id.clone()).await {
@@ -136,7 +148,7 @@ async fn main() -> anyhow::Result<()> {
                     super_precise_with_hardcoded
                         .insert(token_id.clone(), price_usd_hardcoded.to_string());
 
-                    if let Some((block_height, block_timestamp_nanosec)) = *last_block_height {
+                    if let Some((block_height, block_timestamp_nanosec)) = *block_lock {
                         token_price_stream
                             .emit_event(
                                 0,
@@ -152,7 +164,7 @@ async fn main() -> anyhow::Result<()> {
                     }
                 }
             }
-            drop(last_block_height);
+            drop(block_lock);
             drop(tokens);
             let ref_compatibility_format = ref_compatibility_format
                 .into_iter()
@@ -172,8 +184,9 @@ async fn main() -> anyhow::Result<()> {
                 super_precise_with_hardcoded: serde_json::to_string(&super_precise_with_hardcoded)
                     .unwrap(),
             });
-            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+
             save_tokens(&*tokens_clone.read().await).await;
+            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
         }
     });
 
@@ -215,9 +228,13 @@ struct TokenIdWrapper {
     token_id: AccountId,
 }
 
-async fn load_tokens_save() -> Option<Tokens> {
-    let tokens = fs::read_to_string("tokens.json").await.ok()?;
-    serde_json::from_str(&tokens).ok()
+async fn load_tokens_save() -> Result<Tokens, anyhow::Error> {
+    if fs::try_exists("tokens.json").await? {
+        let tokens = fs::read_to_string("tokens.json").await?;
+        Ok(serde_json::from_str(&tokens)?)
+    } else {
+        Ok(Tokens::new())
+    }
 }
 
 async fn save_tokens(tokens: &Tokens) {

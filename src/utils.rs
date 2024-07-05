@@ -1,3 +1,5 @@
+pub const RPC_URL: &str = "https://rpc.shitzuapes.xyz";
+
 pub mod serde_bigdecimal {
     use serde::{de::Error, Deserialize, Deserializer, Serializer};
     use sqlx::types::BigDecimal;

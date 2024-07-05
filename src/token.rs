@@ -1,13 +1,14 @@
 use std::collections::HashMap;
 use std::str::FromStr;
 
-use inindexer::near_indexer_primitives::types::AccountId;
+use inindexer::near_indexer_primitives::types::{AccountId, Balance};
+use inindexer::near_utils::dec_format;
 use intear_events::events::trade::trade_pool_change::PoolType;
 use serde::{Deserialize, Serialize};
 use sqlx::types::BigDecimal;
 
 use crate::pool_data::PoolData;
-use crate::token_metadata::TokenMetadata;
+use crate::token_metadata::TokenMetadataWithoutIcon;
 use crate::tokens::USD_TOKEN;
 use crate::utils::serde_bigdecimal;
 
@@ -58,7 +59,13 @@ pub struct Token {
     /// 'Main pool' is a pool that leads to a token that can be farther converted
     /// into [`USD_TOKEN`] through one of [`USD_ROUTES`].
     pub main_pool: Option<String>,
-    pub metadata: TokenMetadata,
+    pub metadata: TokenMetadataWithoutIcon,
+    #[serde(with = "dec_format")]
+    #[serde(default)]
+    pub total_supply: Balance,
+    #[serde(with = "dec_format")]
+    #[serde(default)]
+    pub circulating_supply: Balance,
 }
 
 pub fn calculate_price(

@@ -8,6 +8,7 @@ use sqlx::types::BigDecimal;
 
 use crate::{
     pool_data::PoolData,
+    supply::{get_circulating_supply, get_total_supply},
     token::{calculate_price, get_hardcoded_price_usd, Token},
     token_metadata::get_token_metadata,
 };
@@ -137,6 +138,10 @@ impl Tokens {
                             price_usd_hardcoded: BigDecimal::from(0),
                             main_pool: None,
                             metadata,
+                            total_supply: get_total_supply(&token_id).await.unwrap_or_default(),
+                            circulating_supply: get_circulating_supply(&token_id)
+                                .await
+                                .unwrap_or_default(),
                         },
                     );
                     self.tokens.get_mut(&token_id).unwrap()
@@ -164,6 +169,10 @@ impl Tokens {
                         price_usd_hardcoded: BigDecimal::from(0),
                         main_pool: None,
                         metadata,
+                        total_supply: get_total_supply(&token_id).await.unwrap_or_default(),
+                        circulating_supply: get_circulating_supply(&token_id)
+                            .await
+                            .unwrap_or_default(),
                     },
                 );
             } else {

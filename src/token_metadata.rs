@@ -7,10 +7,10 @@ use near_jsonrpc_client::{methods, JsonRpcClient};
 use near_jsonrpc_primitives::types::query::QueryResponseKind;
 use serde::{Deserialize, Serialize};
 
-const RPC_URL: &str = "https://rpc.shitzuapes.xyz";
+use crate::utils::RPC_URL;
 
 #[cached(time = 3600, result = true)]
-pub async fn get_token_metadata(token_id: AccountId) -> anyhow::Result<TokenMetadata> {
+pub async fn get_token_metadata(token_id: AccountId) -> anyhow::Result<TokenMetadataWithoutIcon> {
     let client = JsonRpcClient::connect(RPC_URL);
     let request = methods::query::RpcQueryRequest {
         block_reference: BlockReference::Finality(Finality::Final),
@@ -28,7 +28,7 @@ pub async fn get_token_metadata(token_id: AccountId) -> anyhow::Result<TokenMeta
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct TokenMetadata {
-    pub decimals: u32,
+pub struct TokenMetadataWithoutIcon {
     pub symbol: String,
+    pub decimals: u32,
 }
