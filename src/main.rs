@@ -59,6 +59,7 @@ async fn main() -> anyhow::Result<()> {
         .unwrap();
 
     let mut tokens = load_tokens().await.expect("Failed to load tokens");
+    log::info!("Updating metadata of {} tokens", tokens.tokens.len());
     for (account_id, token) in tokens.tokens.iter_mut() {
         token.account_id = account_id.clone();
         token.reputation = get_reputation(account_id);
@@ -74,6 +75,7 @@ async fn main() -> anyhow::Result<()> {
             .await
             .expect("Failed to get token metadata");
     }
+    log::info!("Metadata updated");
     let tokens = Arc::new(RwLock::new(tokens));
 
     let redis_connection = ConnectionManager::new(Client::open(

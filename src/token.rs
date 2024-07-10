@@ -140,7 +140,7 @@ impl Token {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord, Default, Copy)]
 pub enum TokenScore {
     Spam,
     #[default]
@@ -232,18 +232,8 @@ pub fn get_hardcoded_price_usd(token_id: &AccountId, actual_price_usd: &BigDecim
 ///   considered NotFake.
 pub fn get_reputation(token_id: &AccountId) -> TokenScore {
     match token_id.as_str() {
-        "nearrewards.near"
-        | "kusama-airdrop.near"
-        | "adtoken.near"
-        | "lonkrewards.near"
-        | "ad.0xshitzu.near"
-        | "metapools.near"
-        | "reftoken.near"
-        | "burrowfinancedao.near"
-        | "dragoneggsmeme.near" => TokenScore::Spam,
         "usn"
         | "utopia.secretskelliessociety.near"
-        | "rimjob.tkn.near"
         | "slush.tkn.near"
         | "token.pumpopoly.near"
         | "usmeme.tg"
@@ -315,9 +305,22 @@ pub fn get_reputation(token_id: &AccountId) -> TokenScore {
         | "853d955acef822db058eb8505911ed77f175b99e.factory.bridge.near"
         | "aaaaaa20d9e0e2461697782ef11675f668207961.factory.bridge.near"
         | "token.paras.near" => TokenScore::Reputable,
+        s if SPAM_TOKENS.contains(&s) => TokenScore::Spam,
         _ => TokenScore::Unknown,
     }
 }
+
+pub const SPAM_TOKENS: &[&str] = &[
+    "nearrewards.near",
+    "kusama-airdrop.near",
+    "adtoken.near",
+    "lonkrewards.near",
+    "ad.0xshitzu.near",
+    "metapools.near",
+    "reftoken.near",
+    "burrowfinancedao.near",
+    "dragoneggsmeme.near",
+];
 
 pub fn get_slug(token_id: &AccountId) -> Vec<&'static str> {
     match token_id.as_str() {

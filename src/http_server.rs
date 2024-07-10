@@ -6,7 +6,11 @@ use inindexer::near_indexer_primitives::types::AccountId;
 use serde::Deserialize;
 use tokio::sync::RwLock;
 
-use crate::{token::Token, tokens::Tokens, JsonSerializedPrices};
+use crate::{
+    token::{Token, TokenScore, SPAM_TOKENS},
+    tokens::Tokens,
+    JsonSerializedPrices,
+};
 
 pub async fn launch_http_server(
     tokens: Arc<RwLock<Tokens>>,
@@ -147,10 +151,115 @@ pub async fn launch_http_server(
                         let tokens = Arc::clone(&tokens);
                         async move {
                             let tokens = tokens.read().await;
-                            let results = tokens.search_tokens(&query.query, query.take);
+                            let results = tokens.search_tokens(&query.query, query.take, query.reputation);
                             HttpResponse::Ok()
                                 .insert_header(("Cache-Control", "public, max-age=3600"))
                                 .json(results)
+                        }
+                    }
+                }))
+                .route("/token-spam-list", web::get().to(|| async {
+                    // Some spam tokens are not tradeable and won't get picked up by the price indexer
+                    HttpResponse::Ok()
+                        .insert_header(("Cache-Control", "public, max-age=3600"))
+                        .json(SPAM_TOKENS)
+                }))
+                .route("/token-unknown-or-better-list", web::get().to({
+                    let tokens = Arc::clone(&tokens);
+                    move || {
+                        let tokens = Arc::clone(&tokens);
+                        async move {
+                            let tokens = tokens.read().await;
+                            HttpResponse::Ok()
+                                .insert_header(("Cache-Control", "public, max-age=3600"))
+                                .json(tokens
+                                    .tokens
+                                    .values()
+                                    .filter(|token| token.reputation >= TokenScore::Unknown)
+                                    .map(|token| &token.account_id)
+                                    .collect::<Vec<_>>())
+                        }
+                    }
+                }))
+                .route("/tokens-unknown-or-better", web::get().to({
+                    let tokens = Arc::clone(&tokens);
+                    move || {
+                        let tokens = Arc::clone(&tokens);
+                        async move {
+                            let tokens = tokens.read().await;
+                            HttpResponse::Ok()
+                                .insert_header(("Cache-Control", "public, max-age=3600"))
+                                .json(tokens
+                                    .tokens
+                                    .values()
+                                    .filter(|token| token.reputation >= TokenScore::Unknown)
+                                    .collect::<Vec<_>>())
+                        }
+                    }
+                }))
+                .route("/token-notfake-or-better-list", web::get().to({
+                    let tokens = Arc::clone(&tokens);
+                    move || {
+                        let tokens = Arc::clone(&tokens);
+                        async move {
+                            let tokens = tokens.read().await;
+                            HttpResponse::Ok()
+                                .insert_header(("Cache-Control", "public, max-age=3600"))
+                                .json(tokens
+                                    .tokens
+                                    .values()
+                                    .filter(|token| token.reputation >= TokenScore::NotFake)
+                                    .map(|token| &token.account_id)
+                                    .collect::<Vec<_>>())
+                        }
+                    }
+                }))
+                .route("/tokens-notfake-or-better", web::get().to({
+                    let tokens = Arc::clone(&tokens);
+                    move || {
+                        let tokens = Arc::clone(&tokens);
+                        async move {
+                            let tokens = tokens.read().await;
+                            HttpResponse::Ok()
+                                .insert_header(("Cache-Control", "public, max-age=3600"))
+                                .json(tokens
+                                    .tokens
+                                    .values()
+                                    .filter(|token| token.reputation >= TokenScore::NotFake)
+                                    .collect::<Vec<_>>())
+                        }
+                    }
+                }))
+                .route("/reputable-list", web::get().to({
+                    let tokens = Arc::clone(&tokens);
+                    move || {
+                        let tokens = Arc::clone(&tokens);
+                        async move {
+                            let tokens = tokens.read().await;
+                            HttpResponse::Ok()
+                                .insert_header(("Cache-Control", "public, max-age=3600"))
+                                .json(tokens
+                                    .tokens
+                                    .values()
+                                    .filter(|token| token.reputation >= TokenScore::Reputable)
+                                    .map(|token| &token.account_id)
+                                    .collect::<Vec<_>>())
+                        }
+                    }
+                }))
+                .route("/tokens-reputable", web::get().to({
+                    let tokens = Arc::clone(&tokens);
+                    move || {
+                        let tokens = Arc::clone(&tokens);
+                        async move {
+                            let tokens = tokens.read().await;
+                            HttpResponse::Ok()
+                                .insert_header(("Cache-Control", "public, max-age=3600"))
+                                .json(tokens
+                                    .tokens
+                                    .values()
+                                    .filter(|token| token.reputation >= TokenScore::Reputable)
+                                    .collect::<Vec<_>>())
                         }
                     }
                 }))
@@ -222,6 +331,8 @@ struct TokenSearch {
     query: String,
     #[serde(rename = "n", default = "default_search_take")]
     take: usize,
+    #[serde(rename = "rep", default)]
+    reputation: TokenScore,
 }
 
 fn default_search_take() -> usize {

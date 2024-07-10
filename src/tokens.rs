@@ -9,7 +9,7 @@ use sqlx::types::BigDecimal;
 use crate::{
     pool_data::PoolData,
     supply::{get_circulating_supply, get_total_supply},
-    token::{calculate_price, get_hardcoded_price_usd, Token},
+    token::{calculate_price, get_hardcoded_price_usd, Token, TokenScore},
     token_metadata::get_token_metadata,
 };
 
@@ -222,11 +222,18 @@ impl Tokens {
         }
     }
 
-    pub fn search_tokens(&self, search: &str, take: usize) -> Vec<&Token> {
+    pub fn search_tokens(
+        &self,
+        search: &str,
+        take: usize,
+        min_reputation: TokenScore,
+    ) -> Vec<&Token> {
         self.tokens
             .values()
+            .filter(|token| token.reputation >= min_reputation)
             .map(|token| (token, token.sorting_score(search)))
-            .sorted_by_key(|(_, score)| *score)
+            .filter(|(_, score)| *score > 0)
+            .sorted_by_key(|(_, score)| -(*score as i32))
             .map(|(token, _)| token)
             .take(take)
             .collect()
