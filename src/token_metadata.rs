@@ -29,6 +29,7 @@ pub async fn get_token_metadata(token_id: AccountId) -> anyhow::Result<TokenMeta
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TokenMetadataWithoutIcon {
+    pub name: String,
     pub symbol: String,
     pub decimals: u32,
 }

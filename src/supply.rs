@@ -161,8 +161,8 @@ fn burn_addresses(token_id: &AccountId) -> Vec<AccountId> {
     }
 }
 
-/// Locked or team addresses with tokens that are not in circulation
-fn excluded_addresses(token_id: &AccountId) -> Vec<AccountId> {
+/// Locked addresses with tokens that are not in circulation
+fn locked_addresses(token_id: &AccountId) -> Vec<AccountId> {
     match token_id.as_str() {
         "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1" => vec![
             "4a432082cc1cd551b14d6f075e9345087d64f57c2660400ef33cac5a0bb263b0"
@@ -170,6 +170,14 @@ fn excluded_addresses(token_id: &AccountId) -> Vec<AccountId> {
                 .unwrap(), // USDC account that burns tokens for some reason but doesn't mint
         ],
         "usdt.tether-token.near" => vec!["tether-treasury.near".parse().unwrap()],
+        "token.burrow.near" => vec!["lockup.burrow.near".parse().unwrap()],
+        _ => Vec::new(),
+    }
+}
+
+/// Team addresses with tokens that are or are not in circulation (depending on who uses it)
+fn team_addresses(token_id: &AccountId) -> Vec<AccountId> {
+    match token_id.as_str() {
         "mpdao-token.near" => vec![
             "meta-pool-dao.near".parse().unwrap(),
             "meta-pool-dao-2.near".parse().unwrap(),
@@ -183,10 +191,7 @@ fn excluded_addresses(token_id: &AccountId) -> Vec<AccountId> {
         "438e48ed4ce6beecf503d43b9dbd3c30d516e7fd.factory.bridge.near" => {
             vec!["uwondao.near".parse().unwrap()]
         }
-        "token.burrow.near" => vec![
-            "lockup.burrow.near".parse().unwrap(),
-            "burrow.sputnik-dao.near".parse().unwrap(),
-        ],
+        "token.burrow.near" => vec!["burrow.sputnik-dao.near".parse().unwrap()],
         "token.v2.ref-finance.near" => vec![
             "ref-finance.sputnik-dao.near".parse().unwrap(),
             "ref.ref-dev-fund.near".parse().unwrap(),
@@ -243,6 +248,7 @@ fn excluded_addresses(token_id: &AccountId) -> Vec<AccountId> {
             "intear.near".parse().unwrap(),
             "intear-rewards.near".parse().unwrap(),
         ],
+        "token.0xshitzu.near" => vec!["shitzu.sputnik-dao.near".parse().unwrap()],
         _ => Vec::new(),
     }
 }
@@ -272,14 +278,17 @@ pub async fn get_total_supply(token_id: &AccountId) -> Result<Balance, SupplyErr
     Ok(total_supply.saturating_sub(sent_to_burn_addresses))
 }
 
-pub async fn get_circulating_supply(token_id: &AccountId) -> Result<Balance, SupplyError> {
+pub async fn get_circulating_supply(
+    token_id: &AccountId,
+    exclude_team: bool,
+) -> Result<Balance, SupplyError> {
     if let Some(hardcoded_circulating_supply) = hardcoded_circulating_supply(token_id.clone()).await
     {
         return Ok(hardcoded_circulating_supply);
     }
     let total_supply = get_ft_total_supply(token_id.clone()).await?;
     let sent_to_burn_addresses = get_sent_to_burn_addresses(token_id.clone()).await?;
-    let excluded_supply = get_excluded_supply(token_id.clone()).await?;
+    let excluded_supply = get_excluded_supply(token_id.clone(), exclude_team).await?;
     let additional_non_circulating_supply =
         hardcoded_additional_non_circulating_supply(token_id.clone())
             .await
@@ -330,11 +339,20 @@ pub async fn get_sent_to_burn_addresses(token_id: AccountId) -> Result<Balance, 
 }
 
 #[cached(time = 3600, result = true)]
-pub async fn get_excluded_supply(token_id: AccountId) -> Result<Balance, SupplyError> {
+pub async fn get_excluded_supply(
+    token_id: AccountId,
+    exclude_team: bool,
+) -> Result<Balance, SupplyError> {
     let mut total_excluded_supply = 0;
-    for excluded_address in excluded_addresses(&token_id) {
+    for excluded_address in locked_addresses(&token_id) {
         let balance = get_balance(token_id.clone(), excluded_address.clone()).await?;
         total_excluded_supply += balance;
+    }
+    if exclude_team {
+        for team_address in team_addresses(&token_id) {
+            let balance = get_balance(token_id.clone(), team_address.clone()).await?;
+            total_excluded_supply += balance;
+        }
     }
     Ok(total_excluded_supply)
 }

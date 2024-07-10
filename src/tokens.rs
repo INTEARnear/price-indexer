@@ -133,15 +133,24 @@ impl Tokens {
                     self.tokens.insert(
                         token_id.clone(),
                         Token {
+                            account_id: token_id.clone(),
                             price_usd_raw: BigDecimal::from(0),
                             price_usd: BigDecimal::from(0),
                             price_usd_hardcoded: BigDecimal::from(0),
                             main_pool: None,
                             metadata,
                             total_supply: get_total_supply(&token_id).await.unwrap_or_default(),
-                            circulating_supply: get_circulating_supply(&token_id)
+                            circulating_supply: get_circulating_supply(&token_id, false)
                                 .await
                                 .unwrap_or_default(),
+                            circulating_supply_excluding_team: get_circulating_supply(
+                                &token_id, true,
+                            )
+                            .await
+                            .unwrap_or_default(),
+                            reputation: Default::default(),
+                            socials: Default::default(),
+                            slug: Default::default(),
                         },
                     );
                     self.tokens.get_mut(&token_id).unwrap()
@@ -164,15 +173,22 @@ impl Tokens {
                 self.tokens.insert(
                     token_id.clone(),
                     Token {
+                        account_id: token_id.clone(),
                         price_usd_raw: BigDecimal::from(0),
                         price_usd: BigDecimal::from(0),
                         price_usd_hardcoded: BigDecimal::from(0),
                         main_pool: None,
                         metadata,
                         total_supply: get_total_supply(&token_id).await.unwrap_or_default(),
-                        circulating_supply: get_circulating_supply(&token_id)
+                        circulating_supply: get_circulating_supply(&token_id, false)
                             .await
                             .unwrap_or_default(),
+                        circulating_supply_excluding_team: get_circulating_supply(&token_id, true)
+                            .await
+                            .unwrap_or_default(),
+                        reputation: Default::default(),
+                        socials: Default::default(),
+                        slug: Default::default(),
                     },
                 );
             } else {
@@ -204,5 +220,15 @@ impl Tokens {
                 token.price_usd_hardcoded = get_hardcoded_price_usd(&token_id, &token.price_usd);
             }
         }
+    }
+
+    pub fn search_tokens(&self, search: &str, take: usize) -> Vec<&Token> {
+        self.tokens
+            .values()
+            .map(|token| (token, token.sorting_score(search)))
+            .sorted_by_key(|(_, score)| *score)
+            .map(|(token, _)| token)
+            .take(take)
+            .collect()
     }
 }

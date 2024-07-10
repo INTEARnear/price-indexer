@@ -3,9 +3,10 @@ use std::{fs::File, io::BufReader, sync::Arc};
 use actix_cors::Cors;
 use actix_web::{http::StatusCode, web, App, HttpResponse, HttpResponseBuilder, HttpServer, Route};
 use inindexer::near_indexer_primitives::types::AccountId;
+use serde::Deserialize;
 use tokio::sync::RwLock;
 
-use crate::{token::Token, tokens::Tokens, JsonSerializedPrices, TokenIdWrapper};
+use crate::{token::Token, tokens::Tokens, JsonSerializedPrices};
 
 pub async fn launch_http_server(
     tokens: Arc<RwLock<Tokens>>,
@@ -115,13 +116,42 @@ pub async fn launch_http_server(
                             .json(token.price_usd_hardcoded.to_string())
                     }, None)),
                 )
-                .route("/token", web::get().to(move |query: web::Query<TokenIdWrapper>| {
+                .route("/token", web::get().to({
                     let tokens = Arc::clone(&tokens);
+                    move |query: web::Query<TokenIdWrapper>| {
+                        let tokens = Arc::clone(&tokens);
+                        async move {
+                            let tokens = tokens.read().await;
+                            HttpResponse::Ok()
+                                .insert_header(("Cache-Control", "public, max-age=3600"))
+                                .json(tokens.tokens.get(&query.token_id))
+                        }
+                    }
+                }))
+                .route("/tokens", web::get().to(move || {
+                    let json_serialized_all_tokens = Arc::clone(&json_serialized_all_tokens);
                     async move {
-                        let tokens = tokens.read().await;
-                        HttpResponse::Ok()
-                            .insert_header(("Cache-Control", "public, max-age=3600"))
-                            .json(tokens.tokens.get(&query.token_id))
+                        if let Some(json_serialized) = json_serialized_all_tokens.read().await.as_ref() {
+                            HttpResponse::Ok()
+                                .content_type("application/json")
+                                .insert_header(("Cache-Control", "public, max-age=3"))
+                                .body(json_serialized.full_data.to_string())
+                        } else {
+                            HttpResponse::InternalServerError().finish()
+                        }
+                    }
+                }))
+                .route("/token-search", web::get().to({
+                    let tokens = Arc::clone(&tokens);
+                    move |query: web::Query<TokenSearch>| {
+                        let tokens = Arc::clone(&tokens);
+                        async move {
+                            let tokens = tokens.read().await;
+                            let results = tokens.search_tokens(&query.query, query.take);
+                            HttpResponse::Ok()
+                                .insert_header(("Cache-Control", "public, max-age=3600"))
+                                .json(results)
+                        }
                     }
                 }))
     });
@@ -184,4 +214,21 @@ fn price_route(
             }
         }
     })
+}
+
+#[derive(Debug, Deserialize)]
+struct TokenSearch {
+    #[serde(rename = "q")]
+    query: String,
+    #[serde(rename = "n", default = "default_search_take")]
+    take: usize,
+}
+
+fn default_search_take() -> usize {
+    5
+}
+
+#[derive(Debug, Deserialize)]
+struct TokenIdWrapper {
+    token_id: AccountId,
 }

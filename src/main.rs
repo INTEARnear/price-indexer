@@ -16,7 +16,6 @@ use std::{
 
 use http_server::launch_http_server;
 use inevents_redis::RedisEventStream;
-use inindexer::near_indexer_primitives::types::AccountId;
 use intear_events::events::{
     price::{
         price_pool::{PricePoolEvent, PricePoolEventData},
@@ -29,6 +28,7 @@ use pool_data::{extract_pool_data, PoolData};
 use redis::{aio::ConnectionManager, Client};
 use serde::Deserialize;
 use supply::{get_circulating_supply, get_total_supply};
+use token::{get_reputation, get_slug, get_socials};
 use token_metadata::get_token_metadata;
 use tokens::Tokens;
 use tokio::fs;
@@ -45,6 +45,8 @@ struct JsonSerializedPrices {
     prices_only_with_hardcoded: String,
     ref_compatibility_format_with_hardcoded: String,
     super_precise_with_hardcoded: String,
+
+    full_data: String,
 }
 
 #[actix_web::main]
@@ -56,7 +58,22 @@ async fn main() -> anyhow::Result<()> {
         .init()
         .unwrap();
 
-    let tokens = load_tokens_save().await.expect("Failed to load tokens");
+    let mut tokens = load_tokens().await.expect("Failed to load tokens");
+    for (account_id, token) in tokens.tokens.iter_mut() {
+        token.account_id = account_id.clone();
+        token.reputation = get_reputation(account_id);
+        token.slug = get_slug(account_id)
+            .into_iter()
+            .map(|s| s.to_owned())
+            .collect();
+        token.socials = get_socials(account_id)
+            .into_iter()
+            .map(|(k, v)| (k.to_owned(), v.to_owned()))
+            .collect();
+        token.metadata = get_token_metadata(account_id.clone())
+            .await
+            .expect("Failed to get token metadata");
+    }
     let tokens = Arc::new(RwLock::new(tokens));
 
     let redis_connection = ConnectionManager::new(Client::open(
@@ -104,9 +121,17 @@ async fn main() -> anyhow::Result<()> {
                     Ok(total_supply) => token.total_supply = total_supply,
                     Err(e) => log::warn!("Failed to get total supply for {token_id}: {e:?}"),
                 }
-                match get_circulating_supply(token_id).await {
+                match get_circulating_supply(token_id, false).await {
                     Ok(circulating_supply) => token.circulating_supply = circulating_supply,
                     Err(e) => log::warn!("Failed to get circulating supply for {token_id}: {e:?}"),
+                }
+                match get_circulating_supply(token_id, true).await {
+                    Ok(circulating_supply_excluding_team) => {
+                        token.circulating_supply_excluding_team = circulating_supply_excluding_team
+                    }
+                    Err(e) => log::warn!(
+                        "Failed to get circulating supply excluding team for {token_id}: {e:?}"
+                    ),
                 }
             }
 
@@ -165,6 +190,7 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
             drop(block_lock);
+            let full_data = serde_json::to_string(&tokens.tokens).unwrap();
             drop(tokens);
             let ref_compatibility_format = ref_compatibility_format
                 .into_iter()
@@ -183,6 +209,8 @@ async fn main() -> anyhow::Result<()> {
                 .unwrap(),
                 super_precise_with_hardcoded: serde_json::to_string(&super_precise_with_hardcoded)
                     .unwrap(),
+
+                full_data,
             });
 
             save_tokens(&*tokens_clone.read().await).await;
@@ -223,12 +251,7 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[derive(Debug, Deserialize)]
-struct TokenIdWrapper {
-    token_id: AccountId,
-}
-
-async fn load_tokens_save() -> Result<Tokens, anyhow::Error> {
+async fn load_tokens() -> Result<Tokens, anyhow::Error> {
     if fs::try_exists("tokens.json").await? {
         let tokens = fs::read_to_string("tokens.json").await?;
         Ok(serde_json::from_str(&tokens)?)
