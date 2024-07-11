@@ -320,6 +320,7 @@ pub const SPAM_TOKENS: &[&str] = &[
     "reftoken.near",
     "burrowfinancedao.near",
     "dragoneggsmeme.near",
+    "linear_protocol.near",
 ];
 
 pub fn get_slug(token_id: &AccountId) -> Vec<&'static str> {
