@@ -321,6 +321,7 @@ pub const SPAM_TOKENS: &[&str] = &[
     "burrowfinancedao.near",
     "dragoneggsmeme.near",
     "linear_protocol.near",
+    "harvest-moon.near", // Old MOON, should be hidden everywhere
 ];
 
 pub fn get_slug(token_id: &AccountId) -> Vec<&'static str> {
