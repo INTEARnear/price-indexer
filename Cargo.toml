@@ -20,8 +20,8 @@ inevents-redis = { git = "https://github.com/INTEARnear/inevents", default-featu
 intear-events = { git = "https://github.com/INTEARnear/inevents", default-features = false }
 redis = { version = "0.25.3", features = [ "tokio-rustls-comp", "connection-manager" ] }
 sqlx = { version = "0.7.4", features = ["bigdecimal"] }
-near-jsonrpc-client = "0.8.0"
-near-jsonrpc-primitives = "0.20.1"
+near-jsonrpc-client = "0.10.1"
+near-jsonrpc-primitives = "0.23.0"
 cached = { version = "0.52.0", features = [ "async", "async_tokio_rt_multi_thread" ] }
 actix-web = { version = "4.8.0", features = ["rustls-0_22"] }
 rustls = "0.22.4"
