@@ -317,7 +317,7 @@ pub const SPAM_TOKENS: &[&str] = &[
     "lonkrewards.near",
     "ad.0xshitzu.near",
     "metapools.near",
-    "reftoken.near",
+    "claimneardrop.reftoken.near",
     "burrowfinancedao.near",
     "dragoneggsmeme.near",
     "linear_protocol.near",
