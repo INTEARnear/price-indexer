@@ -284,11 +284,7 @@ pub async fn launch_http_server(
             .expect("Failed to bind HTTP server")
     };
 
-    server
-        .disable_signals()
-        .run()
-        .await
-        .expect("Failed to start HTTP server");
+    server.run().await.expect("Failed to start HTTP server");
 }
 
 fn cached_all_tokens_route(

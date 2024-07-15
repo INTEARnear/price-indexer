@@ -39,6 +39,7 @@ use tokio::{
     fs::{self, OpenOptions},
     io::AsyncWriteExt,
 };
+use tokio_util::sync::CancellationToken;
 
 const SPAM_TOKENS_FILE: &str = "spam_tokens.txt";
 const MAX_REDIS_EVENT_BUFFER_SIZE: usize = 10_000;
@@ -97,22 +98,34 @@ async fn main() -> anyhow::Result<()> {
     // While this mutex is locked, the block height can't be updated by pool change events.
     let last_event_block_height = Arc::new(Mutex::new(None));
 
-    let mut token_price_stream = RedisEventStream::<PriceTokenEventData>::new(
-        redis_connection.clone(),
-        PriceTokenEvent::ID.to_string(),
-    );
-
-    let block_lock_clone = Arc::new(Mutex::new(None));
+    let block_lock = Arc::new(Mutex::new(None));
 
     let json_serialized_all_tokens = Arc::new(RwLock::new(None));
 
-    tokio::spawn(launch_http_server(
+    let cancellation_token = CancellationToken::new();
+    let mut join_handles = Vec::new();
+
+    join_handles.push(tokio::spawn(launch_http_server(
         Arc::clone(&tokens),
         Arc::clone(&json_serialized_all_tokens),
+    )));
+
+    let token_price_stream = Arc::new(RedisEventStream::<PriceTokenEventData>::new(
+        redis_connection.clone(),
+        PriceTokenEvent::ID.to_string(),
+    ));
+    let pool_price_stream = Arc::new(RedisEventStream::<PricePoolEventData>::new(
+        redis_connection.clone(),
+        PricePoolEvent::ID.to_string(),
     ));
 
-    tokio::spawn(async move {
+    let cancellation_token_clone = cancellation_token.clone();
+    let token_price_stream_clone = Arc::clone(&token_price_stream);
+    join_handles.push(tokio::spawn(async move {
         loop {
+            if cancellation_token_clone.is_cancelled() {
+                break;
+            }
             let mut tokens = tokens_clone.write().await;
 
             tokens.recalculate_prices();
@@ -147,7 +160,7 @@ async fn main() -> anyhow::Result<()> {
             drop(tokens);
             let tokens = tokens_clone.read().await;
             let mut to_add_in_spam = Vec::new();
-            let block_lock = block_lock_clone.lock().await;
+            let block_lock_clone = block_lock.lock().await;
 
             for (token_id, token) in tokens.tokens.iter() {
                 if let Ok(token_metadata) = get_token_metadata(token_id.clone()).await {
@@ -198,8 +211,8 @@ async fn main() -> anyhow::Result<()> {
                     super_precise_with_hardcoded
                         .insert(token_id.clone(), price_usd_hardcoded.to_string());
 
-                    if let Some((block_height, block_timestamp_nanosec)) = *block_lock {
-                        token_price_stream
+                    if let Some((block_height, block_timestamp_nanosec)) = *block_lock_clone {
+                        token_price_stream_clone
                             .emit_event(
                                 0,
                                 PriceTokenEventData {
@@ -214,7 +227,7 @@ async fn main() -> anyhow::Result<()> {
                     }
                 }
             }
-            drop(block_lock);
+            drop(block_lock_clone);
             let full_data = serde_json::to_string(&tokens.tokens).unwrap();
             drop(tokens);
             let ref_compatibility_format = ref_compatibility_format
@@ -270,57 +283,88 @@ async fn main() -> anyhow::Result<()> {
             save_tokens(&*tokens_clone.read().await).await;
             tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
         }
-    });
+    }));
 
     let tokens_clone = Arc::clone(&tokens);
     let redis_connection_clone = redis_connection.clone();
-    tokio::spawn(async move {
+    let cancellation_token_clone = cancellation_token.clone();
+    join_handles.push(tokio::spawn(async move {
         RedisEventStream::<NewContractNep141EventData>::new(
             redis_connection_clone,
             NewContractNep141Event::ID.to_string(),
         )
-        .start_reading_events("token_indexer_discovery", move |event| {
-            let tokens = Arc::clone(&tokens_clone);
-            async move {
-                let token_id = event.account_id;
-                tokens.write().await.add_token(&token_id).await;
-                Ok(())
-            }
-        })
+        .start_reading_events(
+            "token_indexer_discovery",
+            move |event| {
+                let tokens = Arc::clone(&tokens_clone);
+                async move {
+                    let token_id = event.account_id;
+                    tokens.write().await.add_token(&token_id).await;
+                    Ok(())
+                }
+            },
+            || cancellation_token_clone.is_cancelled(),
+        )
         .await
         .expect("Failed to read new token events");
-    });
+    }));
 
-    RedisEventStream::<TradePoolChangeEventData>::new(
-        redis_connection.clone(),
-        TradePoolChangeEvent::ID.to_string(),
-    )
-    .start_reading_events("pair_price_extractor", move |event| {
-        let mut pool_price_stream = RedisEventStream::<PricePoolEventData>::new(
+    let cancellation_token_clone = cancellation_token.clone();
+    let pool_price_stream_clone = Arc::clone(&pool_price_stream);
+    let token_price_stream_clone = Arc::clone(&token_price_stream);
+    join_handles.push(tokio::spawn(async move {
+        RedisEventStream::<TradePoolChangeEventData>::new(
             redis_connection.clone(),
-            PricePoolEvent::ID.to_string(),
-        );
-        let mut token_price_stream = RedisEventStream::<PriceTokenEventData>::new(
-            redis_connection.clone(),
-            PriceTokenEvent::ID.to_string(),
-        );
-        let tokens = Arc::clone(&tokens);
-        let last_event_block_height = Arc::clone(&last_event_block_height);
-        async move {
-            last_event_block_height
-                .lock()
-                .await
-                .replace((event.block_height, event.block_timestamp_nanosec));
-            if let Some(pool_data) = extract_pool_data(&event.pool) {
-                process_pool(&event, &pool_data, &mut pool_price_stream).await;
-                process_token(&event, &pool_data, &mut token_price_stream, &tokens).await;
-            } else {
-                log::warn!("Ratios can't be extracted from pool {}", event.pool_id);
-            }
-            Ok(())
-        }
-    })
-    .await?;
+            TradePoolChangeEvent::ID.to_string(),
+        )
+        .start_reading_events(
+            "pair_price_extractor",
+            move |event| {
+                let tokens = Arc::clone(&tokens);
+                let last_event_block_height = Arc::clone(&last_event_block_height);
+                let pool_price_stream = Arc::clone(&pool_price_stream_clone);
+                let token_price_stream = Arc::clone(&token_price_stream_clone);
+                async move {
+                    last_event_block_height
+                        .lock()
+                        .await
+                        .replace((event.block_height, event.block_timestamp_nanosec));
+                    if let Some(pool_data) = extract_pool_data(&event.pool) {
+                        process_pool(&event, &pool_data, &pool_price_stream).await;
+                        process_token(&event, &pool_data, &token_price_stream, &tokens).await;
+                    } else {
+                        log::warn!("Ratios can't be extracted from pool {}", event.pool_id);
+                    }
+                    Ok(())
+                }
+            },
+            || cancellation_token_clone.is_cancelled(),
+        )
+        .await
+        .expect("Failed to read trade pool change events");
+    }));
+
+    tokio::signal::ctrl_c()
+        .await
+        .expect("Failed to wait for Ctrl+C");
+    log::info!("Ctrl+C received, waiting for tasks to finish");
+    cancellation_token.cancel();
+    for (i, join_handle) in join_handles.into_iter().enumerate() {
+        log::info!("Stopping task {}", i + 1);
+        join_handle.await?;
+    }
+    log::info!("Sending all remaining token events");
+    Arc::try_unwrap(token_price_stream)
+        .map_err(|_| anyhow::anyhow!("Failed to unwrap token price stream"))?
+        .stop()
+        .await;
+    log::info!("Sending all remaining pool events");
+    Arc::try_unwrap(pool_price_stream)
+        .map_err(|_| anyhow::anyhow!("Failed to unwrap pool price stream"))?
+        .stop()
+        .await;
+    log::info!("Exiting");
+
     Ok(())
 }
 
@@ -359,9 +403,9 @@ async fn save_tokens(tokens: &Tokens) {
 async fn process_pool(
     event: &TradePoolChangeEventData,
     pool_data: &PoolData,
-    price_stream: &mut RedisEventStream<PricePoolEventData>,
+    pool_price_stream: &RedisEventStream<PricePoolEventData>,
 ) {
-    let price_event = PricePoolEventData {
+    let pool_price_event = PricePoolEventData {
         block_height: event.block_height,
         pool_id: event.pool_id.clone(),
         token0: pool_data.tokens.0.clone(),
@@ -370,15 +414,19 @@ async fn process_pool(
         token1_in_1_token0: pool_data.ratios.1.clone(),
         timestamp_nanosec: event.block_timestamp_nanosec,
     };
-    price_stream
-        .emit_event(event.block_height, price_event, MAX_REDIS_EVENT_BUFFER_SIZE)
+    pool_price_stream
+        .emit_event(
+            event.block_height,
+            pool_price_event,
+            MAX_REDIS_EVENT_BUFFER_SIZE,
+        )
         .expect("Failed to emit price pool event");
 }
 
 async fn process_token(
     event: &TradePoolChangeEventData,
     pool_data: &PoolData,
-    price_stream: &mut RedisEventStream<PriceTokenEventData>,
+    token_price_stream: &RedisEventStream<PriceTokenEventData>,
     tokens: &Arc<RwLock<Tokens>>,
 ) {
     let mut tokens_write = tokens.write().await;
@@ -391,19 +439,19 @@ async fn process_token(
     let mut events = Vec::new();
     for token_id in [&pool_data.tokens.0, &pool_data.tokens.1] {
         if let Some(token) = token_read.tokens.get(token_id) {
-            let price_event = PriceTokenEventData {
+            let token_price_event = PriceTokenEventData {
                 block_height: event.block_height,
                 token: token_id.clone(),
                 price_usd: token.price_usd_raw.clone(),
                 timestamp_nanosec: event.block_timestamp_nanosec,
             };
-            events.push(price_event);
+            events.push(token_price_event);
         }
     }
     drop(token_read);
 
     for event in events {
-        price_stream
+        token_price_stream
             .emit_event(event.block_height, event, MAX_REDIS_EVENT_BUFFER_SIZE)
             .expect("Failed to emit price token event");
     }
