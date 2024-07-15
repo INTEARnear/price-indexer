@@ -1,4 +1,7 @@
-use std::{collections::HashMap, str::FromStr};
+use std::{
+    collections::{HashMap, HashSet},
+    str::FromStr,
+};
 
 use inindexer::near_indexer_primitives::types::AccountId;
 use intear_events::events::trade::trade_pool_change::PoolType;
@@ -74,6 +77,8 @@ pub struct Tokens {
 
     pub tokens: HashMap<AccountId, Token>,
     pub pools: HashMap<String, (PoolType, PoolData)>,
+    #[serde(default)]
+    pub spam_tokens: HashSet<AccountId>,
 }
 
 fn create_routes_to_usd() -> HashMap<AccountId, String> {
@@ -89,6 +94,7 @@ impl Tokens {
             routes_to_usd: create_routes_to_usd(),
             tokens: HashMap::new(),
             pools: HashMap::new(),
+            spam_tokens: HashSet::new(),
         }
     }
 
@@ -122,6 +128,39 @@ impl Tokens {
         max_pool
     }
 
+    pub async fn add_token(&mut self, token_id: &AccountId) -> bool {
+        if self.tokens.contains_key(token_id) {
+            return true;
+        }
+        if let Ok(metadata) = get_token_metadata(token_id.clone()).await {
+            self.tokens.insert(
+                token_id.clone(),
+                Token {
+                    account_id: token_id.clone(),
+                    price_usd_raw: BigDecimal::from(0),
+                    price_usd: BigDecimal::from(0),
+                    price_usd_hardcoded: BigDecimal::from(0),
+                    main_pool: None,
+                    metadata,
+                    total_supply: get_total_supply(token_id).await.unwrap_or_default(),
+                    circulating_supply: get_circulating_supply(token_id, false)
+                        .await
+                        .unwrap_or_default(),
+                    circulating_supply_excluding_team: get_circulating_supply(token_id, true)
+                        .await
+                        .unwrap_or_default(),
+                    reputation: Default::default(),
+                    socials: Default::default(),
+                    slug: Default::default(),
+                },
+            );
+            true
+        } else {
+            log::warn!("Couldn't get metadata for {token_id}");
+            false
+        }
+    }
+
     pub async fn update_pool(&mut self, pool_id: &str, pool: PoolType, data: PoolData) {
         let tokens = [data.tokens.0.clone(), data.tokens.1.clone()];
         self.pools.insert(pool_id.to_string(), (pool, data));
@@ -129,33 +168,9 @@ impl Tokens {
             if let Some(pool) = self.recalculate_token(&token_id) {
                 let token = if let Some(token) = self.tokens.get_mut(&token_id) {
                     token
-                } else if let Ok(metadata) = get_token_metadata(token_id.clone()).await {
-                    self.tokens.insert(
-                        token_id.clone(),
-                        Token {
-                            account_id: token_id.clone(),
-                            price_usd_raw: BigDecimal::from(0),
-                            price_usd: BigDecimal::from(0),
-                            price_usd_hardcoded: BigDecimal::from(0),
-                            main_pool: None,
-                            metadata,
-                            total_supply: get_total_supply(&token_id).await.unwrap_or_default(),
-                            circulating_supply: get_circulating_supply(&token_id, false)
-                                .await
-                                .unwrap_or_default(),
-                            circulating_supply_excluding_team: get_circulating_supply(
-                                &token_id, true,
-                            )
-                            .await
-                            .unwrap_or_default(),
-                            reputation: Default::default(),
-                            socials: Default::default(),
-                            slug: Default::default(),
-                        },
-                    );
+                } else if self.add_token(&token_id).await {
                     self.tokens.get_mut(&token_id).unwrap()
                 } else {
-                    log::warn!("Couldn't get metadata for {token_id}");
                     continue;
                 };
 

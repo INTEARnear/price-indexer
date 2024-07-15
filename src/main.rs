@@ -9,7 +9,9 @@ mod tokens;
 mod utils;
 
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
+    fs::File,
+    io::{BufRead, BufReader},
     str::FromStr,
     sync::Arc,
 };
@@ -17,6 +19,7 @@ use std::{
 use http_server::launch_http_server;
 use inevents_redis::RedisEventStream;
 use intear_events::events::{
+    newcontract::nep141::{NewContractNep141Event, NewContractNep141EventData},
     price::{
         price_pool::{PricePoolEvent, PricePoolEventData},
         price_token::{PriceTokenEvent, PriceTokenEventData},
@@ -28,12 +31,16 @@ use pool_data::{extract_pool_data, PoolData};
 use redis::{aio::ConnectionManager, Client};
 use serde::Deserialize;
 use supply::{get_circulating_supply, get_total_supply};
-use token::{get_reputation, get_slug, get_socials};
+use token::{get_reputation, get_slug, get_socials, is_spam, TokenScore};
 use token_metadata::get_token_metadata;
 use tokens::Tokens;
-use tokio::fs;
 use tokio::sync::{Mutex, RwLock};
+use tokio::{
+    fs::{self, OpenOptions},
+    io::AsyncWriteExt,
+};
 
+const SPAM_TOKENS_FILE: &str = "spam_tokens.txt";
 const MAX_REDIS_EVENT_BUFFER_SIZE: usize = 10_000;
 
 #[derive(Debug, Deserialize)]
@@ -62,7 +69,7 @@ async fn main() -> anyhow::Result<()> {
     log::info!("Updating metadata of {} tokens", tokens.tokens.len());
     for (account_id, token) in tokens.tokens.iter_mut() {
         token.account_id = account_id.clone();
-        token.reputation = get_reputation(account_id);
+        token.reputation = get_reputation(account_id, &tokens.spam_tokens);
         token.slug = get_slug(account_id)
             .into_iter()
             .map(|s| s.to_owned())
@@ -95,7 +102,7 @@ async fn main() -> anyhow::Result<()> {
         PriceTokenEvent::ID.to_string(),
     );
 
-    let block_lock_2 = Arc::new(Mutex::new(None));
+    let block_lock_clone = Arc::new(Mutex::new(None));
 
     let json_serialized_all_tokens = Arc::new(RwLock::new(None));
 
@@ -139,10 +146,26 @@ async fn main() -> anyhow::Result<()> {
 
             drop(tokens);
             let tokens = tokens_clone.read().await;
-            let block_lock = block_lock_2.lock().await;
+            let mut to_add_in_spam = Vec::new();
+            let block_lock = block_lock_clone.lock().await;
 
             for (token_id, token) in tokens.tokens.iter() {
                 if let Ok(token_metadata) = get_token_metadata(token_id.clone()).await {
+                    let meta_stringified = format!(
+                        "Symbol: {}\nName: {}\n",
+                        token_metadata.symbol.replace('\n', " "),
+                        token_metadata.name.replace('\n', " ")
+                    );
+                    if token.reputation == TokenScore::Unknown {
+                        match is_spam(&meta_stringified).await {
+                            Ok(true) => {
+                                to_add_in_spam.push(token_id.clone());
+                            },
+                            Ok(false) => {}
+                            Err(e) => log::warn!("Failed to check spam for {token_id}: {e:?}\nDetails:\n{meta_stringified}"),
+                        }
+                    }
+
                     let price_usd = &token.price_usd;
 
                     let price_f64 = f64::from_str(&price_usd.to_string()).unwrap();
@@ -215,9 +238,57 @@ async fn main() -> anyhow::Result<()> {
                 full_data,
             });
 
+            if !to_add_in_spam.is_empty() {
+                let mut file = OpenOptions::new()
+                    .create(true)
+                    .write(true)
+                    .append(true)
+                    .open(SPAM_TOKENS_FILE)
+                    .await
+                    .expect("Failed to open spam tokens file");
+                let existing_spam_list = tokens_clone.read().await.spam_tokens.clone();
+                for token in to_add_in_spam.iter() {
+                    if !existing_spam_list.contains(token) {
+                        file.write_all(format!("{token} // added by AI\n").as_bytes())
+                            .await
+                            .expect("Failed to write spam token");
+                    }
+                }
+                file.flush()
+                    .await
+                    .expect("Failed to flush spam tokens file");
+                drop(file);
+                let mut tokens = tokens_clone.write().await;
+                for token in to_add_in_spam.iter() {
+                    if let Some(token) = tokens.tokens.get_mut(token) {
+                        token.reputation = TokenScore::Spam;
+                    }
+                }
+                tokens.spam_tokens.extend(to_add_in_spam);
+            }
+
             save_tokens(&*tokens_clone.read().await).await;
             tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
         }
+    });
+
+    let tokens_clone = Arc::clone(&tokens);
+    let redis_connection_clone = redis_connection.clone();
+    tokio::spawn(async move {
+        RedisEventStream::<NewContractNep141EventData>::new(
+            redis_connection_clone,
+            NewContractNep141Event::ID.to_string(),
+        )
+        .start_reading_events("token_indexer_discovery", move |event| {
+            let tokens = Arc::clone(&tokens_clone);
+            async move {
+                let token_id = event.account_id;
+                tokens.write().await.add_token(&token_id).await;
+                Ok(())
+            }
+        })
+        .await
+        .expect("Failed to read new token events");
     });
 
     RedisEventStream::<TradePoolChangeEventData>::new(
@@ -260,6 +331,22 @@ async fn load_tokens() -> Result<Tokens, anyhow::Error> {
     } else {
         Ok(Tokens::new())
     }
+    .map(|mut tokens| {
+        let mut spam_tokens = HashSet::new();
+        if let Ok(file) = File::open(SPAM_TOKENS_FILE) {
+            let mut buf = BufReader::new(file);
+            let mut line = String::new();
+            while let Ok(1..) = buf.read_line(&mut line) {
+                let token_id = line.split("//").next().unwrap().trim().parse().unwrap();
+                line.clear();
+                spam_tokens.insert(token_id);
+            }
+            tokens.spam_tokens = spam_tokens;
+        } else {
+            log::warn!("Failed to open spam tokens file. Doesn it not exist?");
+        }
+        tokens
+    })
 }
 
 async fn save_tokens(tokens: &Tokens) {

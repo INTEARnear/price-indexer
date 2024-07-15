@@ -22,7 +22,7 @@ redis = { version = "0.25.3", features = [ "tokio-rustls-comp", "connection-mana
 sqlx = { version = "0.7.4", features = ["bigdecimal"] }
 near-jsonrpc-client = "0.10.1"
 near-jsonrpc-primitives = "0.23.0"
-cached = { version = "0.52.0", features = [ "async", "async_tokio_rt_multi_thread" ] }
+cached = { version = "0.52.0", features = [ "async", "async_tokio_rt_multi_thread", "disk_store" ] }
 actix-web = { version = "4.8.0", features = ["rustls-0_22"] }
 rustls = "0.22.4"
 rustls-pemfile = "2.1.2"

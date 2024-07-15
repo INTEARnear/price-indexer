@@ -7,7 +7,7 @@ use serde::Deserialize;
 use tokio::sync::RwLock;
 
 use crate::{
-    token::{Token, TokenScore, SPAM_TOKENS},
+    token::{Token, TokenScore},
     tokens::Tokens,
     JsonSerializedPrices,
 };
@@ -158,11 +158,17 @@ pub async fn launch_http_server(
                         }
                     }
                 }))
-                .route("/token-spam-list", web::get().to(|| async {
-                    // Some spam tokens are not tradeable and won't get picked up by the price indexer
-                    HttpResponse::Ok()
-                        .insert_header(("Cache-Control", "public, max-age=3600"))
-                        .json(SPAM_TOKENS)
+                .route("/token-spam-list", web::get().to({
+                    let tokens = Arc::clone(&tokens);
+                    move || {
+                        let tokens = Arc::clone(&tokens);
+                        async move {
+                            let tokens = tokens.read().await;
+                            HttpResponse::Ok()
+                                .insert_header(("Cache-Control", "public, max-age=3600"))
+                                .json(&tokens.spam_tokens)
+                        }
+                    }
                 }))
                 .route("/token-unknown-or-better-list", web::get().to({
                     let tokens = Arc::clone(&tokens);

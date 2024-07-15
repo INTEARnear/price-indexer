@@ -1,6 +1,7 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 
+use cached::proc_macro::io_cached;
 use inindexer::near_indexer_primitives::types::{AccountId, Balance};
 use inindexer::near_utils::dec_format;
 use intear_events::events::trade::trade_pool_change::PoolType;
@@ -230,7 +231,7 @@ pub fn get_hardcoded_price_usd(token_id: &AccountId, actual_price_usd: &BigDecim
 ///   and so on. Tokens that are owned by reputable projects but are not tradable, have low
 ///   liquidity, or otherwise not expected to be searched by users often (xREF, LJUMP, etc.), are
 ///   considered NotFake.
-pub fn get_reputation(token_id: &AccountId) -> TokenScore {
+pub fn get_reputation(token_id: &AccountId, spam_tokens: &HashSet<AccountId>) -> TokenScore {
     match token_id.as_str() {
         "usn"
         | "utopia.secretskelliessociety.near"
@@ -277,6 +278,7 @@ pub fn get_reputation(token_id: &AccountId) -> TokenScore {
         | "f5cfbc74057c610c8ef151a439252680ac68c6dc.factory.bridge.near"
         | "bean.tkn.near"
         | "pre.meteor-token.near"
+        | "rugrace.tkn.near"
         | "wojak.tkn.near" => TokenScore::NotFake,
         "token.lonkingnearbackto2024.near"
         | "token.sweat"
@@ -305,24 +307,10 @@ pub fn get_reputation(token_id: &AccountId) -> TokenScore {
         | "853d955acef822db058eb8505911ed77f175b99e.factory.bridge.near"
         | "aaaaaa20d9e0e2461697782ef11675f668207961.factory.bridge.near"
         | "token.paras.near" => TokenScore::Reputable,
-        s if SPAM_TOKENS.contains(&s) => TokenScore::Spam,
+        _ if spam_tokens.contains(token_id) => TokenScore::Spam,
         _ => TokenScore::Unknown,
     }
 }
-
-pub const SPAM_TOKENS: &[&str] = &[
-    "nearrewards.near",
-    "kusama-airdrop.near",
-    "adtoken.near",
-    "lonkrewards.near",
-    "ad.0xshitzu.near",
-    "metapools.near",
-    "claimneardrop.reftoken.near",
-    "burrowfinancedao.near",
-    "dragoneggsmeme.near",
-    "linear_protocol.near",
-    "harvest-moon.near", // Old MOON, should be hidden everywhere
-];
 
 pub fn get_slug(token_id: &AccountId) -> Vec<&'static str> {
     match token_id.as_str() {
@@ -350,5 +338,82 @@ pub fn get_socials(token_id: &AccountId) -> HashMap<&'static str, &'static str> 
         ]),
         // TODO
         _ => HashMap::new(),
+    }
+}
+
+#[io_cached(
+    time = 100000000000000000,
+    disk = true,
+    map_error = "|e| anyhow::anyhow!(e)"
+)]
+pub async fn is_spam(s: &str) -> Result<bool, anyhow::Error> {
+    log::info!("Checking for spam:\n{s}");
+    let system_message = "A new cryptocurrency token was created on the NEAR blockchain with the details given.
+
+If the token details contain links, or otherwise appear to be spam that is massively sent out to millions of users, reply with (Y). If the token details do not contain any promotion, reply with (N). Even if the token name or symbol may appear inappropriate or sound like a scam token, as long as it doesn't contain a link or advertisement, reply with (N). Reply with nothing else other than (Y) or (N).".to_string();
+    let user_message = s;
+    let api_key = std::env::var("ANTHROPIC_API_KEY").expect("ANTHROPIC_API_KEY env var is not set");
+
+    #[derive(Debug, Deserialize)]
+    #[allow(dead_code)] // Used in Debug implementation
+    struct Response {
+        id: String,
+        r#type: String,
+        role: String,
+        model: String,
+        content: Vec<ResponseContent>,
+        stop_reason: String,
+        usage: Usage,
+    }
+    #[derive(Debug, Deserialize)]
+    #[allow(dead_code)]
+    struct ResponseContent {
+        r#type: String,
+        text: String,
+    }
+    #[derive(Debug, Deserialize)]
+    #[allow(dead_code)]
+    struct Usage {
+        input_tokens: u64,
+        output_tokens: u64,
+    }
+    let response: serde_json::Value = reqwest::Client::new()
+        .post("https://api.anthropic.com/v1/messages")
+        .header("x-api-key", api_key)
+        .header("anthropic-version", "2023-06-01")
+        .header("Content-Type", "application/json")
+        .json(&serde_json::json!({
+            "model": "claude-3-5-sonnet-20240620",
+            "max_tokens": 6,
+            "system": system_message,
+            "messages": [
+                {"role": "user", "content": user_message},
+            ]
+        }))
+        .send()
+        .await?
+        .json()
+        .await?;
+    let response_debug = format!("{response:?}");
+    match serde_json::from_value::<Response>(response) {
+        Ok(response) => {
+            let is_spam = response
+                .content
+                .iter()
+                .any(|content| content.text.contains('Y'));
+            log::info!(
+                "{}",
+                if is_spam {
+                    "Flagging as spam"
+                } else {
+                    "Not spam"
+                }
+            );
+            Ok(is_spam)
+        }
+        Err(e) => {
+            log::error!("Failed to parse response {response_debug}: {e}");
+            Err(anyhow::anyhow!("Failed to parse response"))
+        }
     }
 }
