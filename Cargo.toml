@@ -16,7 +16,7 @@ serde_json = { version = "1.0.116" }
 chrono = { version = "0.4.38" }
 async-trait = "0.1.80"
 inindexer = { git = "https://github.com/INTEARnear/inindexer" } # Replace with near-utils when moved to a separate crate
-inevents-redis = { git = "https://github.com/INTEARnear/inevents", default-features = false }
+inevents-redis = { git = "https://github.com/INTEARnear/inevents" }
 intear-events = { git = "https://github.com/INTEARnear/inevents", default-features = false }
 redis = { version = "0.25.3", features = [ "tokio-rustls-comp", "connection-manager" ] }
 sqlx = { version = "0.7.4", features = ["bigdecimal"] }
