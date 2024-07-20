@@ -79,9 +79,9 @@ async fn main() -> anyhow::Result<()> {
             .into_iter()
             .map(|(k, v)| (k.to_owned(), v.to_owned()))
             .collect();
-        token.metadata = get_token_metadata(account_id.clone())
-            .await
-            .expect("Failed to get token metadata");
+        if let Ok(metadata) = get_token_metadata(account_id.clone()).await {
+            token.metadata = metadata;
+        }
     }
     log::info!("Metadata updated");
     let tokens = Arc::new(RwLock::new(tokens));

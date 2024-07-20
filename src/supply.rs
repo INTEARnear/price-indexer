@@ -254,7 +254,7 @@ fn team_addresses(token_id: &AccountId) -> Vec<AccountId> {
 }
 
 // ---
-// The ardcoded part ends here
+// The hardcoded part ends here
 // ---
 
 #[derive(Debug)]
