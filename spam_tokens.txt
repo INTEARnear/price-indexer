@@ -11,3 +11,4 @@ linear_protocol.near
 1.laboratory.jumpfinance.near
 congratulations.laboratory.jumpfinance.near
 harvest-moon.near // Old MOON
+richenear.tkn.near
