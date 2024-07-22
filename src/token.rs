@@ -279,6 +279,7 @@ pub fn get_reputation(token_id: &AccountId, spam_tokens: &HashSet<AccountId>) ->
         | "bean.tkn.near"
         | "pre.meteor-token.near"
         | "rugrace.tkn.near"
+        | "dd.tg"
         | "wojak.tkn.near" => TokenScore::NotFake,
         "token.lonkingnearbackto2024.near"
         | "token.sweat"
