@@ -12,3 +12,4 @@ linear_protocol.near
 congratulations.laboratory.jumpfinance.near
 harvest-moon.near // Old MOON
 richenear.tkn.near
+gold.l2e.near // added by AI
