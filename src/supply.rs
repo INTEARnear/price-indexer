@@ -249,6 +249,10 @@ fn team_addresses(token_id: &AccountId) -> Vec<AccountId> {
             "intear-rewards.near".parse().unwrap(),
         ],
         "token.0xshitzu.near" => vec!["shitzu.sputnik-dao.near".parse().unwrap()],
+        "dd.tg" => vec![
+            "doubledogdao.near".parse().unwrap(),
+            "ddpool.near".parse().unwrap(),
+        ],
         _ => Vec::new(),
     }
 }
