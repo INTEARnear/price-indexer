@@ -14,6 +14,7 @@ use std::{
     io::{BufRead, BufReader},
     str::FromStr,
     sync::Arc,
+    time::Duration,
 };
 
 use http_server::launch_http_server;
@@ -27,12 +28,16 @@ use intear_events::events::{
     trade::trade_pool_change::{TradePoolChangeEvent, TradePoolChangeEventData},
 };
 use itertools::Itertools;
+use near_jsonrpc_client::{
+    errors::{JsonRpcError, JsonRpcServerError},
+    methods::query::RpcQueryError,
+};
 use pool_data::{extract_pool_data, PoolData};
 use redis::{aio::ConnectionManager, Client};
 use serde::Deserialize;
 use supply::{get_circulating_supply, get_total_supply};
 use token::{get_reputation, get_slug, get_socials, is_spam, TokenScore};
-use token_metadata::get_token_metadata;
+use token_metadata::{get_token_metadata, MetadataError};
 use tokens::Tokens;
 use tokio::sync::{Mutex, RwLock};
 use tokio::{
@@ -42,7 +47,7 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 
 const SPAM_TOKENS_FILE: &str = "spam_tokens.txt";
-const MAX_REDIS_EVENT_BUFFER_SIZE: usize = 10_000;
+const MAX_REDIS_EVENT_BUFFER_SIZE: usize = 100_000;
 
 #[derive(Debug, Deserialize)]
 struct JsonSerializedPrices {
@@ -69,6 +74,9 @@ async fn main() -> anyhow::Result<()> {
     let mut tokens = load_tokens().await.expect("Failed to load tokens");
     log::info!("Updating metadata of {} tokens", tokens.tokens.len());
     for (account_id, token) in tokens.tokens.iter_mut() {
+        if token.deleted {
+            continue;
+        }
         token.account_id = account_id.clone();
         token.reputation = get_reputation(account_id, &tokens.spam_tokens);
         token.slug = get_slug(account_id)
@@ -79,8 +87,19 @@ async fn main() -> anyhow::Result<()> {
             .into_iter()
             .map(|(k, v)| (k.to_owned(), v.to_owned()))
             .collect();
-        if let Ok(metadata) = get_token_metadata(account_id.clone()).await {
-            token.metadata = metadata;
+        match get_token_metadata(account_id.clone()).await {
+            Ok(metadata) => token.metadata = metadata,
+            Err(MetadataError::RpcQueryError(JsonRpcError::ServerError(
+                JsonRpcServerError::HandlerError(RpcQueryError::UnknownAccount { .. }),
+            ))) => {
+                log::warn!("Token {account_id} doesn't exist, marking as deleted");
+                token.deleted = true;
+            }
+            Err(e) => {
+                if token.reputation >= TokenScore::NotFake {
+                    log::warn!("Failed to get metadata for {account_id}: {e:?}")
+                }
+            }
         }
     }
     log::info!("Metadata updated");
@@ -100,14 +119,14 @@ async fn main() -> anyhow::Result<()> {
 
     let block_lock = Arc::new(Mutex::new(None));
 
-    let json_serialized_all_tokens = Arc::new(RwLock::new(None));
+    let json_serialized = Arc::new(RwLock::new(None));
 
     let cancellation_token = CancellationToken::new();
     let mut join_handles = Vec::new();
 
     join_handles.push(tokio::spawn(launch_http_server(
         Arc::clone(&tokens),
-        Arc::clone(&json_serialized_all_tokens),
+        Arc::clone(&json_serialized),
     )));
 
     let token_price_stream = Arc::new(RedisEventStream::<PriceTokenEventData>::new(
@@ -121,6 +140,7 @@ async fn main() -> anyhow::Result<()> {
 
     let cancellation_token_clone = cancellation_token.clone();
     let token_price_stream_clone = Arc::clone(&token_price_stream);
+    let mut interval = tokio::time::interval(Duration::from_secs(5));
     join_handles.push(tokio::spawn(async move {
         loop {
             if cancellation_token_clone.is_cancelled() {
@@ -139,21 +159,36 @@ async fn main() -> anyhow::Result<()> {
             let mut super_precise_with_hardcoded = HashMap::new();
 
             for (token_id, token) in tokens.tokens.iter_mut() {
+                if token.deleted {
+                    continue;
+                }
                 match get_total_supply(token_id).await {
                     Ok(total_supply) => token.total_supply = total_supply,
-                    Err(e) => log::warn!("Failed to get total supply for {token_id}: {e:?}"),
+                    Err(e) => {
+                        if token.reputation >= TokenScore::NotFake {
+                            log::warn!("Failed to get total supply for {token_id}: {e:?}")
+                        }
+                    }
                 }
                 match get_circulating_supply(token_id, false).await {
                     Ok(circulating_supply) => token.circulating_supply = circulating_supply,
-                    Err(e) => log::warn!("Failed to get circulating supply for {token_id}: {e:?}"),
+                    Err(e) => {
+                        if token.reputation >= TokenScore::NotFake {
+                            log::warn!("Failed to get circulating supply for {token_id}: {e:?}")
+                        }
+                    }
                 }
                 match get_circulating_supply(token_id, true).await {
                     Ok(circulating_supply_excluding_team) => {
                         token.circulating_supply_excluding_team = circulating_supply_excluding_team
                     }
-                    Err(e) => log::warn!(
-                        "Failed to get circulating supply excluding team for {token_id}: {e:?}"
-                    ),
+                    Err(e) => {
+                        if token.reputation >= TokenScore::NotFake {
+                            log::warn!(
+                                "Failed to get circulating supply excluding team for {token_id}: {e:?}"
+                            )
+                        }
+                    }
                 }
             }
 
@@ -163,6 +198,9 @@ async fn main() -> anyhow::Result<()> {
             let block_lock_clone = block_lock.lock().await;
 
             for (token_id, token) in tokens.tokens.iter() {
+                if token.deleted {
+                    continue;
+                }
                 if let Ok(token_metadata) = get_token_metadata(token_id.clone()).await {
                     let meta_stringified = format!(
                         "Symbol: {}\nName: {}\n",
@@ -212,7 +250,7 @@ async fn main() -> anyhow::Result<()> {
                         .insert(token_id.clone(), price_usd_hardcoded.to_string());
 
                     if let Some((block_height, block_timestamp_nanosec)) = *block_lock_clone {
-                        token_price_stream_clone
+                        if let Err(err) = token_price_stream_clone
                             .emit_event(
                                 0,
                                 PriceTokenEventData {
@@ -222,8 +260,9 @@ async fn main() -> anyhow::Result<()> {
                                     timestamp_nanosec: block_timestamp_nanosec,
                                 },
                                 MAX_REDIS_EVENT_BUFFER_SIZE,
-                            )
-                            .expect("Failed to emit price token event");
+                            ) {
+                                log::error!("Failed to emit price token event: {err:?}");
+                            }
                     }
                 }
             }
@@ -234,7 +273,7 @@ async fn main() -> anyhow::Result<()> {
                 .into_iter()
                 .sorted_by_key(|(token_id, _)| token_id.to_string())
                 .collect::<BTreeMap<_, _>>();
-            *json_serialized_all_tokens.write().await = Some(JsonSerializedPrices {
+            *json_serialized.write().await = Some(JsonSerializedPrices {
                 prices_only: serde_json::to_string(&prices_only).unwrap(),
                 ref_compatibility_format: serde_json::to_string(&ref_compatibility_format).unwrap(),
                 super_precise: serde_json::to_string(&super_precise).unwrap(),
@@ -250,6 +289,7 @@ async fn main() -> anyhow::Result<()> {
 
                 full_data,
             });
+            log::info!("Updated all prices");
 
             if !to_add_in_spam.is_empty() {
                 let mut file = OpenOptions::new()
@@ -281,7 +321,7 @@ async fn main() -> anyhow::Result<()> {
             }
 
             save_tokens(&*tokens_clone.read().await).await;
-            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+            interval.tick().await;
         }
     }));
 
@@ -414,13 +454,13 @@ async fn process_pool(
         token1_in_1_token0: pool_data.ratios.1.clone(),
         timestamp_nanosec: event.block_timestamp_nanosec,
     };
-    pool_price_stream
-        .emit_event(
-            event.block_height,
-            pool_price_event,
-            MAX_REDIS_EVENT_BUFFER_SIZE,
-        )
-        .expect("Failed to emit price pool event");
+    if let Err(err) = pool_price_stream.emit_event(
+        event.block_height,
+        pool_price_event,
+        MAX_REDIS_EVENT_BUFFER_SIZE,
+    ) {
+        log::error!("Failed to emit price pool event: {err:?}");
+    }
 }
 
 async fn process_token(
@@ -451,8 +491,10 @@ async fn process_token(
     drop(token_read);
 
     for event in events {
-        token_price_stream
-            .emit_event(event.block_height, event, MAX_REDIS_EVENT_BUFFER_SIZE)
-            .expect("Failed to emit price token event");
+        if let Err(err) =
+            token_price_stream.emit_event(event.block_height, event, MAX_REDIS_EVENT_BUFFER_SIZE)
+        {
+            log::error!("Failed to emit price token event: {err:?}");
+        }
     }
 }

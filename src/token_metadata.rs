@@ -3,14 +3,20 @@ use inindexer::near_indexer_primitives::{
     types::{AccountId, BlockReference, Finality},
     views::QueryRequest,
 };
-use near_jsonrpc_client::{methods, JsonRpcClient};
+use near_jsonrpc_client::{
+    errors::JsonRpcError,
+    methods::{self, query::RpcQueryError},
+    JsonRpcClient,
+};
 use near_jsonrpc_primitives::types::query::QueryResponseKind;
 use serde::{Deserialize, Serialize};
 
 use crate::utils::RPC_URL;
 
 #[cached(time = 3600, result = true)]
-pub async fn get_token_metadata(token_id: AccountId) -> anyhow::Result<TokenMetadataWithoutIcon> {
+pub async fn get_token_metadata(
+    token_id: AccountId,
+) -> Result<TokenMetadataWithoutIcon, MetadataError> {
     let client = JsonRpcClient::connect(RPC_URL);
     let request = methods::query::RpcQueryRequest {
         block_reference: BlockReference::Finality(Finality::Final),
@@ -20,11 +26,20 @@ pub async fn get_token_metadata(token_id: AccountId) -> anyhow::Result<TokenMeta
             args: Vec::new().into(),
         },
     };
-    let response = client.call(request).await?;
+    let response = client
+        .call(request)
+        .await
+        .map_err(MetadataError::RpcQueryError)?;
     let QueryResponseKind::CallResult(call_result) = response.kind else {
         unreachable!()
     };
-    Ok(serde_json::from_slice(&call_result.result)?)
+    serde_json::from_slice(&call_result.result).map_err(MetadataError::SerdeJsonError)
+}
+
+#[derive(Debug)]
+pub enum MetadataError {
+    RpcQueryError(JsonRpcError<RpcQueryError>),
+    SerdeJsonError(serde_json::Error),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

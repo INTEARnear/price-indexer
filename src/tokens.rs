@@ -152,6 +152,7 @@ impl Tokens {
                     reputation: Default::default(),
                     socials: Default::default(),
                     slug: Default::default(),
+                    deleted: false,
                 },
             );
             true
@@ -204,6 +205,7 @@ impl Tokens {
                         reputation: Default::default(),
                         socials: Default::default(),
                         slug: Default::default(),
+                        deleted: false,
                     },
                 );
             } else {

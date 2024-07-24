@@ -102,21 +102,21 @@ pub async fn launch_http_server(
                     )
                     .route("/get-token-price", price_route(Arc::clone(&tokens), |token_id, token| {
                         HttpResponse::Ok().content_type("text/html; charset=utf8") // why does ref send this as html
-                            .insert_header(("Cache-Control", "public, max-age=1"))
+                            .insert_header(("Cache-Control", "public, max-age=5"))
                             .body(format!(r#"{{"token_contract_id": "{token_id}", "price": "{}"}}"#, token.price_usd_hardcoded.with_scale(12)))
                     }, Some(|token_id| {
                         HttpResponse::Ok().content_type("text/html; charset=utf8")
-                            .insert_header(("Cache-Control", "public, max-age=1"))
+                            .insert_header(("Cache-Control", "public, max-age=5"))
                             .body(format!(r#"{{"token_contract_id": "{token_id}", "price": "N/A"}}"#))
                     })))
                     .route("/price", price_route(Arc::clone(&tokens), |_, token| {
                         HttpResponse::Ok()
-                            .insert_header(("Cache-Control", "public, max-age=1"))
+                            .insert_header(("Cache-Control", "public, max-age=5"))
                             .json(token.price_usd_hardcoded.to_string().parse::<f64>().unwrap())
                     }, None))
                     .route("/super-precise-price", price_route(Arc::clone(&tokens), |_, token| {
                         HttpResponse::Ok()
-                            .insert_header(("Cache-Control", "public, max-age=1"))
+                            .insert_header(("Cache-Control", "public, max-age=5"))
                             .json(token.price_usd_hardcoded.to_string())
                     }, None)),
                 )
@@ -127,7 +127,7 @@ pub async fn launch_http_server(
                         async move {
                             let tokens = tokens.read().await;
                             HttpResponse::Ok()
-                                .insert_header(("Cache-Control", "public, max-age=3600"))
+                                .insert_header(("Cache-Control", "public, max-age=5"))
                                 .json(tokens.tokens.get(&query.token_id))
                         }
                     }
@@ -194,7 +194,7 @@ pub async fn launch_http_server(
                         async move {
                             let tokens = tokens.read().await;
                             HttpResponse::Ok()
-                                .insert_header(("Cache-Control", "public, max-age=3600"))
+                                .insert_header(("Cache-Control", "public, max-age=5"))
                                 .json(tokens
                                     .tokens
                                     .values()
@@ -227,7 +227,7 @@ pub async fn launch_http_server(
                         async move {
                             let tokens = tokens.read().await;
                             HttpResponse::Ok()
-                                .insert_header(("Cache-Control", "public, max-age=3600"))
+                                .insert_header(("Cache-Control", "public, max-age=5"))
                                 .json(tokens
                                     .tokens
                                     .values()
@@ -260,7 +260,7 @@ pub async fn launch_http_server(
                         async move {
                             let tokens = tokens.read().await;
                             HttpResponse::Ok()
-                                .insert_header(("Cache-Control", "public, max-age=3600"))
+                                .insert_header(("Cache-Control", "public, max-age=5"))
                                 .json(tokens
                                     .tokens
                                     .values()
@@ -297,7 +297,7 @@ fn cached_all_tokens_route(
             if let Some(json_serialized) = json_serialized.read().await.as_ref() {
                 HttpResponseBuilder::new(StatusCode::OK)
                     .content_type("application/json")
-                    .insert_header(("Cache-Control", "public, max-age=3"))
+                    .insert_header(("Cache-Control", "public, max-age=5"))
                     .body(get_field(json_serialized).clone())
             } else {
                 HttpResponse::InternalServerError().finish()

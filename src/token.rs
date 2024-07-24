@@ -79,6 +79,8 @@ pub struct Token {
     pub socials: HashMap<String, String>,
     #[serde(default, skip_deserializing)]
     pub slug: Vec<String>,
+    #[serde(default)]
+    pub deleted: bool,
 }
 
 fn default_account_id() -> AccountId {
