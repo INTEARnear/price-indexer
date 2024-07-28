@@ -1,6 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
     str::FromStr,
+    time::{Duration, Instant},
 };
 
 use inindexer::near_indexer_primitives::types::AccountId;
@@ -79,6 +80,8 @@ pub struct Tokens {
     pub pools: HashMap<String, (PoolType, PoolData)>,
     #[serde(default)]
     pub spam_tokens: HashSet<AccountId>,
+    #[serde(skip)]
+    last_checked_metadata: HashMap<AccountId, Instant>,
 }
 
 fn create_routes_to_usd() -> HashMap<AccountId, String> {
@@ -95,6 +98,7 @@ impl Tokens {
             tokens: HashMap::new(),
             pools: HashMap::new(),
             spam_tokens: HashSet::new(),
+            last_checked_metadata: HashMap::new(),
         }
     }
 
@@ -132,6 +136,12 @@ impl Tokens {
         if self.tokens.contains_key(token_id) {
             return true;
         }
+        if let Some(time) = self.last_checked_metadata.get(token_id) {
+            // Don't try to get metadata on every NEP-141 event if the metadata is corrupted
+            if time.elapsed() < Duration::from_secs(60) {
+                return false;
+            }
+        }
         if let Ok(metadata) = get_token_metadata(token_id.clone()).await {
             self.tokens.insert(
                 token_id.clone(),
@@ -158,6 +168,8 @@ impl Tokens {
             true
         } else {
             log::warn!("Couldn't get metadata for {token_id}");
+            self.last_checked_metadata
+                .insert(token_id.clone(), Instant::now());
             false
         }
     }
