@@ -359,8 +359,10 @@ async fn main() -> anyhow::Result<()> {
                 move |event| {
                     let tokens = Arc::clone(&tokens_clone);
                     async move {
-                        let token_id = event.account_id;
-                        tokens.write().await.add_token(&token_id).await;
+                        if event.event_standard == "nep141" {
+                            let token_id = event.account_id;
+                            tokens.write().await.add_token(&token_id).await;
+                        }
                         Ok(())
                     }
                 },
