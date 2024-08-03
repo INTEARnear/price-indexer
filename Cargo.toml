@@ -30,3 +30,5 @@ actix-cors = "0.7.0"
 reqwest = { version = "0.12.5", features = ["json"] }
 num-traits = "0.2.19"
 tokio-util = "0.7.11"
+serde_yaml = "0.9.34"
+utoipa-swagger-ui = { version = "7.1.0", features = [ "actix-web" ] }

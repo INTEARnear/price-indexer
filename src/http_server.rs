@@ -5,6 +5,7 @@ use actix_web::{http::StatusCode, web, App, HttpResponse, HttpResponseBuilder, H
 use inindexer::near_indexer_primitives::types::AccountId;
 use serde::Deserialize;
 use tokio::sync::RwLock;
+use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{
     token::{Token, TokenScore},
@@ -40,7 +41,10 @@ pub async fn launch_http_server(
     let server = HttpServer::new(move || {
         let tokens = Arc::clone(&tokens);
         let json_serialized_all_tokens = Arc::clone(&json_serialized_all_tokens);
+
         App::new()
+        .route("/openapi", web::get().to(|| async { HttpResponse::with_body(StatusCode::OK, include_str!("../openapi.yml")) }))
+        .service(SwaggerUi::new("/{_:.*}").config(utoipa_swagger_ui::Config::from("/openapi")))
             .wrap(actix_web::middleware::Logger::new(r#"%a "%r" (forwarded from %{r}a) %s %b Referrer: "%{Referer}i" User-Agent: "%{User-Agent}i" %T"#))
             .wrap(Cors::default().allow_any_origin().allow_any_method().allow_any_header())
             .route(
