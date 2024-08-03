@@ -1,7 +1,11 @@
 use std::{fs::File, io::BufReader, sync::Arc};
 
 use actix_cors::Cors;
-use actix_web::{http::StatusCode, web::{self, redirect}, App, HttpResponse, HttpResponseBuilder, HttpServer, Route};
+use actix_web::{
+    http::StatusCode,
+    web::{self, redirect},
+    App, HttpResponse, HttpResponseBuilder, HttpServer, Route,
+};
 use inindexer::near_indexer_primitives::types::AccountId;
 use serde::Deserialize;
 use tokio::sync::RwLock;
