@@ -356,7 +356,6 @@ paths:
                 total_supply: "100000000000000000000000000000"
                 circulating_supply: "100000000000000000000000000000"
                 circulating_supply_excluding_team: "98650377280100000000000000001"
-                circulating_supply_excluding_team: "98650377280100000000000000001"
                 reputation: "Reputable"
                 socials:
                   website: "https://intear.tech"
