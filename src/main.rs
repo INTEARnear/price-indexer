@@ -20,7 +20,6 @@ use std::{
 use http_server::launch_http_server;
 use inevents_redis::RedisEventStream;
 use intear_events::events::{
-    log::log_nep297::{LogNep297Event, LogNep297EventData},
     newcontract::nep141::{NewContractNep141Event, NewContractNep141EventData},
     price::{
         price_pool::{PricePoolEvent, PricePoolEventData},
@@ -348,28 +347,6 @@ async fn main() -> anyhow::Result<()> {
         )
         .await
         .expect("Failed to read new token events");
-    }));
-    let redis_connection_clone = redis_connection.clone();
-    let tokens_clone = Arc::clone(&tokens);
-    let cancellation_token_clone = cancellation_token.clone();
-    join_handles.push(tokio::spawn(async move {
-        RedisEventStream::<LogNep297EventData>::new(redis_connection_clone, LogNep297Event::ID)
-            .start_reading_events(
-                "token_indexer_discovery",
-                move |event| {
-                    let tokens = Arc::clone(&tokens_clone);
-                    async move {
-                        if event.event_standard == "nep141" {
-                            let token_id = event.account_id;
-                            tokens.write().await.add_token(&token_id).await;
-                        }
-                        Ok(())
-                    }
-                },
-                || cancellation_token_clone.is_cancelled(),
-            )
-            .await
-            .expect("Failed to read new token events");
     }));
 
     let cancellation_token_clone = cancellation_token.clone();
