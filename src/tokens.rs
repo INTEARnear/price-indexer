@@ -142,35 +142,38 @@ impl Tokens {
                 return false;
             }
         }
-        if let Ok(metadata) = get_token_metadata(token_id.clone()).await {
-            self.tokens.insert(
-                token_id.clone(),
-                Token {
-                    account_id: token_id.clone(),
-                    price_usd_raw: BigDecimal::from(0),
-                    price_usd: BigDecimal::from(0),
-                    price_usd_hardcoded: BigDecimal::from(0),
-                    main_pool: None,
-                    metadata,
-                    total_supply: get_total_supply(token_id).await.unwrap_or_default(),
-                    circulating_supply: get_circulating_supply(token_id, false)
-                        .await
-                        .unwrap_or_default(),
-                    circulating_supply_excluding_team: get_circulating_supply(token_id, true)
-                        .await
-                        .unwrap_or_default(),
-                    reputation: Default::default(),
-                    socials: Default::default(),
-                    slug: Default::default(),
-                    deleted: false,
-                },
-            );
-            true
-        } else {
-            log::warn!("Couldn't get metadata for {token_id}");
-            self.last_checked_metadata
-                .insert(token_id.clone(), Instant::now());
-            false
+        match get_token_metadata(token_id.clone()).await {
+            Ok(metadata) => {
+                self.tokens.insert(
+                    token_id.clone(),
+                    Token {
+                        account_id: token_id.clone(),
+                        price_usd_raw: BigDecimal::from(0),
+                        price_usd: BigDecimal::from(0),
+                        price_usd_hardcoded: BigDecimal::from(0),
+                        main_pool: None,
+                        metadata,
+                        total_supply: get_total_supply(token_id).await.unwrap_or_default(),
+                        circulating_supply: get_circulating_supply(token_id, false)
+                            .await
+                            .unwrap_or_default(),
+                        circulating_supply_excluding_team: get_circulating_supply(token_id, true)
+                            .await
+                            .unwrap_or_default(),
+                        reputation: Default::default(),
+                        socials: Default::default(),
+                        slug: Default::default(),
+                        deleted: false,
+                    },
+                );
+                true
+            }
+            Err(err) => {
+                log::warn!("Couldn't get metadata for {token_id}: {err:?}");
+                self.last_checked_metadata
+                    .insert(token_id.clone(), Instant::now());
+                false
+            }
         }
     }
 

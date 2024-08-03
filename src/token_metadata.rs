@@ -39,7 +39,7 @@ pub async fn get_token_metadata(
 #[derive(Debug)]
 pub enum MetadataError {
     RpcQueryError(JsonRpcError<RpcQueryError>),
-    SerdeJsonError(serde_json::Error),
+    SerdeJsonError(#[allow(dead_code)] serde_json::Error),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

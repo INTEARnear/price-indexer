@@ -263,8 +263,8 @@ fn team_addresses(token_id: &AccountId) -> Vec<AccountId> {
 
 #[derive(Debug)]
 pub enum SupplyError {
-    RequestError(JsonRpcError<RpcQueryError>),
-    ResponseDeserializationError(serde_json::Error),
+    RequestError(#[allow(dead_code)] JsonRpcError<RpcQueryError>),
+    ResponseDeserializationError(#[allow(dead_code)] serde_json::Error),
 }
 
 pub async fn get_total_supply(token_id: &AccountId) -> Result<Balance, SupplyError> {
