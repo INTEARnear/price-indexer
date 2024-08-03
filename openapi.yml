@@ -7,11 +7,21 @@ info:
 servers:
   - url: https://prices.intear.tech
 
+tags:
+  - name: Token Prices
+    description: Endpoints related to token prices
+  - name: Token Information
+    description: Endpoints providing detailed token information
+  - name: Token Lists
+    description: Endpoints for retrieving lists of tokens based on reputation
+
 paths:
   /list-token-price:
     get:
       summary: List token prices with detailed information
       description: Retrieves a list of tokens with their prices, decimals, and symbols
+      tags:
+        - Token Prices
       responses:
         '200':
           description: Successful response
@@ -21,11 +31,22 @@ paths:
                 type: object
                 additionalProperties:
                   $ref: '#/components/schemas/TokenInfo'
+              example:
+                "intel.tkn.near":
+                  decimal: 18
+                  price: "0.00000031403698393197"
+                  symbol: "INTEL"
+                "token.0xshitzu.near":
+                  decimal: 8
+                  price: "0.00123456789012345"
+                  symbol: "SHITZU"
 
   /prices:
     get:
       summary: Get token prices
       description: Retrieves a list of token prices with standard precision
+      tags:
+        - Token Prices
       responses:
         '200':
           description: Successful response
@@ -36,11 +57,16 @@ paths:
                 additionalProperties:
                   type: number
                   format: double
+              example:
+                "intel.tkn.near": 0.00000031403698393197
+                "token.0xshitzu.near": 0.00123
 
   /super-precise:
     get:
       summary: Get token prices with high precision
       description: Retrieves a list of token prices with very high precision
+      tags:
+        - Token Prices
       responses:
         '200':
           description: Successful response
@@ -50,11 +76,16 @@ paths:
                 type: object
                 additionalProperties:
                   type: string
+              example:
+                "intel.tkn.near": "0.00000031403698393197025855699805282527104886657659586331948545230257399577125154783353178706988307614885060246835558957366870252978089345781996132921994271391922684056465779502553052217848616272206867258696"
+                "token.0xshitzu.near": "0.00123000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
 
   /get-token-price:
     get:
       summary: Get price for a specific token
       description: Retrieves the price for a specified token
+      tags:
+        - Token Prices
       parameters:
         - name: token_id
           in: query
@@ -73,11 +104,16 @@ paths:
                     type: string
                   price:
                     type: string
+              example:
+                token_contract_id: "intel.tkn.near"
+                price: "0.00000031403698393197025855699805282527104886657659586331948545230257399577125154783353178706988307614885060246835558957366870252978089345781996132921994271391922684056465779502553052217848616272206867258696"
 
   /price:
     get:
       summary: Get price as a number for a specific token
       description: Retrieves the price as a number for a specified token
+      tags:
+        - Token Prices
       parameters:
         - name: token_id
           in: query
@@ -92,11 +128,14 @@ paths:
               schema:
                 type: number
                 format: double
+              example: 0.00000031403698393197
 
   /super-precise-price:
     get:
       summary: Get high-precision price as a string for a specific token
       description: Retrieves the high-precision price as a string for a specified token
+      tags:
+        - Token Prices
       parameters:
         - name: token_id
           in: query
@@ -110,11 +149,14 @@ paths:
             text/plain:
               schema:
                 type: string
+              example: "0.00000031403698393197025855699805282527104886657659586331948545230257399577125154783353178706988307614885060246835558957366870252978089345781996132921994271391922684056465779502553052217848616272206867258696"
 
   /hardcoded/list-token-price:
     get:
       summary: List hardcoded token prices with detailed information
       description: Retrieves a list of tokens with their hardcoded prices, decimals, and symbols. Stablecoins may be rounded to 1 if close to 1.
+      tags:
+        - Token Prices
       responses:
         '200':
           description: Successful response
@@ -124,11 +166,22 @@ paths:
                 type: object
                 additionalProperties:
                   $ref: '#/components/schemas/TokenInfo'
+              example:
+                "intel.tkn.near":
+                  decimal: 18
+                  price: "0.00000031403698393197"
+                  symbol: "INTEL"
+                "token.0xshitzu.near":
+                  decimal: 8
+                  price: "0.00123"
+                  symbol: "SHITZU"
 
   /hardcoded/prices:
     get:
       summary: Get hardcoded token prices
       description: Retrieves a list of hardcoded token prices with standard precision. Stablecoins may be rounded to 1 if close to 1.
+      tags:
+        - Token Prices
       responses:
         '200':
           description: Successful response
@@ -139,11 +192,16 @@ paths:
                 additionalProperties:
                   type: number
                   format: double
+              example:
+                "intel.tkn.near": 0.00000031403698393197
+                "token.0xshitzu.near": 0.00123
 
   /hardcoded/super-precise:
     get:
       summary: Get hardcoded token prices with high precision
       description: Retrieves a list of hardcoded token prices with very high precision. Stablecoins may be rounded to 1 if close to 1.
+      tags:
+        - Token Prices
       responses:
         '200':
           description: Successful response
@@ -153,11 +211,16 @@ paths:
                 type: object
                 additionalProperties:
                   type: string
+              example:
+                "intel.tkn.near": "0.00000031403698393197025855699805282527104886657659586331948545230257399577125154783353178706988307614885060246835558957366870252978089345781996132921994271391922684056465779502553052217848616272206867258696"
+                "token.0xshitzu.near": "0.00123000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
 
   /hardcoded/get-token-price:
     get:
       summary: Get hardcoded price for a specific token
       description: Retrieves the hardcoded price for a specified token. Stablecoins may be rounded to 1 if close to 1.
+      tags:
+        - Token Prices
       parameters:
         - name: token_id
           in: query
@@ -176,11 +239,16 @@ paths:
                     type: string
                   price:
                     type: string
+              example:
+                token_contract_id: "intel.tkn.near"
+                price: "0.00000031403698393197025855699805282527104886657659586331948545230257399577125154783353178706988307614885060246835558957366870252978089345781996132921994271391922684056465779502553052217848616272206867258696"
 
   /hardcoded/price:
     get:
       summary: Get hardcoded price as a number for a specific token
       description: Retrieves the hardcoded price as a number for a specified token. Stablecoins may be rounded to 1 if close to 1.
+      tags:
+        - Token Prices
       parameters:
         - name: token_id
           in: query
@@ -195,11 +263,14 @@ paths:
               schema:
                 type: number
                 format: double
+              example: 0.00000031403698393197
 
   /hardcoded/super-precise-price:
     get:
       summary: Get hardcoded high-precision price as a string for a specific token
       description: Retrieves the hardcoded high-precision price as a string for a specified token. Stablecoins may be rounded to 1 if close to 1.
+      tags:
+        - Token Prices
       parameters:
         - name: token_id
           in: query
@@ -213,11 +284,14 @@ paths:
             text/plain:
               schema:
                 type: string
+              example: "0.00000031403698393197025855699805282527104886657659586331948545230257399577125154783353178706988307614885060246835558957366870252978089345781996132921994271391922684056465779502553052217848616272206867258696"
 
   /tokens:
     get:
       summary: Get detailed information for all tokens
       description: Retrieves detailed information for all tokens, including prices, metadata, and supply information
+      tags:
+        - Token Information
       responses:
         '200':
           description: Successful response
@@ -227,11 +301,34 @@ paths:
                 type: object
                 additionalProperties:
                   $ref: '#/components/schemas/TokenDetail'
+              example:
+                "intel.tkn.near":
+                  account_id: "intel.tkn.near"
+                  price_usd_raw: "0.00000000000000000031403698393197025855699805282527104886657659586331948545230257399577125154783353178706988307614885060246835558957366870252978089345781996132921994271391922684056465779502553052217848616272206867258696"
+                  price_usd: "0.00000031403698393197025855699805282527104886657659586331948545230257399577125154783353178706988307614885060246835558957366870252978089345781996132921994271391922684056465779502553052217848616272206867258696000000000000"
+                  price_usd_hardcoded: "0.00000031403698393197025855699805282527104886657659586331948545230257399577125154783353178706988307614885060246835558957366870252978089345781996132921994271391922684056465779502553052217848616272206867258696000000000000"
+                  main_pool: "REF-4663"
+                  metadata:
+                    name: "INTEAR"
+                    symbol: "INTEL"
+                    decimals: 18
+                  total_supply: "100000000000000000000000000000"
+                  circulating_supply: "100000000000000000000000000000"
+                  circulating_supply_excluding_team: "98650377280100000000000000001"
+                  reputation: "Reputable"
+                  socials:
+                    website: "https://intear.tech"
+                    telegram: "https://t.me/intearchat"
+                    twitter: "https://x.com/intelnear"
+                  slug: []
+                  deleted: false
 
   /token:
     get:
       summary: Get detailed information for a specific token
       description: Retrieves detailed information for a specific token, including prices, metadata, and supply information
+      tags:
+        - Token Information
       parameters:
         - name: token_id
           in: query
@@ -246,6 +343,27 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TokenDetail'
+              example:
+                account_id: "intel.tkn.near"
+                price_usd_raw: "0.00000000000000000031403698393197025855699805282527104886657659586331948545230257399577125154783353178706988307614885060246835558957366870252978089345781996132921994271391922684056465779502553052217848616272206867258696"
+                price_usd: "0.00000031403698393197025855699805282527104886657659586331948545230257399577125154783353178706988307614885060246835558957366870252978089345781996132921994271391922684056465779502553052217848616272206867258696000000000000"
+                price_usd_hardcoded: "0.00000031403698393197025855699805282527104886657659586331948545230257399577125154783353178706988307614885060246835558957366870252978089345781996132921994271391922684056465779502553052217848616272206867258696000000000000"
+                main_pool: "REF-4663"
+                metadata:
+                  name: "INTEAR"
+                  symbol: "INTEL"
+                  decimals: 18
+                total_supply: "100000000000000000000000000000"
+                circulating_supply: "100000000000000000000000000000"
+                circulating_supply_excluding_team: "98650377280100000000000000001"
+                circulating_supply_excluding_team: "98650377280100000000000000001"
+                reputation: "Reputable"
+                socials:
+                  website: "https://intear.tech"
+                  telegram: "https://t.me/intearchat"
+                  twitter: "https://x.com/intelnear"
+                slug: []
+                deleted: false
         '404':
           description: Token not found
           content:
@@ -261,6 +379,8 @@ paths:
     get:
       summary: Search for tokens
       description: Search for tokens based on various criteria including name, ticker, slug, contract address, or social handles
+      tags:
+        - Token Information
       parameters:
         - name: q
           in: query
@@ -292,11 +412,33 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/TokenDetail'
+              example:
+                - account_id: "intel.tkn.near"
+                  price_usd_raw: "0.00000000000000000031403698393197025855699805282527104886657659586331948545230257399577125154783353178706988307614885060246835558957366870252978089345781996132921994271391922684056465779502553052217848616272206867258696"
+                  price_usd: "0.00000031403698393197025855699805282527104886657659586331948545230257399577125154783353178706988307614885060246835558957366870252978089345781996132921994271391922684056465779502553052217848616272206867258696000000000000"
+                  price_usd_hardcoded: "0.00000031403698393197025855699805282527104886657659586331948545230257399577125154783353178706988307614885060246835558957366870252978089345781996132921994271391922684056465779502553052217848616272206867258696000000000000"
+                  main_pool: "REF-4663"
+                  metadata:
+                    name: "INTEAR"
+                    symbol: "INTEL"
+                    decimals: 18
+                  total_supply: "100000000000000000000000000000"
+                  circulating_supply: "100000000000000000000000000000"
+                  circulating_supply_excluding_team: "98650377280100000000000000001"
+                  reputation: "Reputable"
+                  socials:
+                    website: "https://intear.tech"
+                    telegram: "https://t.me/intearchat"
+                    twitter: "https://x.com/intelnear"
+                  slug: []
+                  deleted: false
 
   /token-spam-list:
     get:
       summary: Get list of spam tokens
       description: Retrieves a list of token IDs for all tokens marked as spam
+      tags:
+        - Token Lists
       responses:
         '200':
           description: Successful response
@@ -306,12 +448,14 @@ paths:
                 type: array
                 items:
                   type: string
-                example: ["spam_token1.near", "spam_token2.near"]
+              example: ["nearrewards.near"]
 
   /token-unknown-or-better-list:
     get:
       summary: Get list of tokens with Unknown or better reputation
       description: Retrieves a list of token IDs for all tokens with a reputation of Unknown, NotFake, or Reputable
+      tags:
+        - Token Lists
       responses:
         '200':
           description: Successful response
@@ -321,12 +465,14 @@ paths:
                 type: array
                 items:
                   type: string
-                example: ["unknown_token.near", "notfake_token.near", "reputable_token.near"]
+              example: ["intel.tkn.near", "token.0xshitzu.near"]
 
   /token-notfake-or-better-list:
     get:
       summary: Get list of tokens with NotFake or better reputation
       description: Retrieves a list of token IDs for all tokens with a reputation of NotFake or Reputable
+      tags:
+        - Token Lists
       responses:
         '200':
           description: Successful response
@@ -336,12 +482,14 @@ paths:
                 type: array
                 items:
                   type: string
-                example: ["notfake_token.near", "reputable_token.near"]
+              example: ["token.0xshitzu.near", "intel.tkn.near"]
 
   /reputable-list:
     get:
       summary: Get list of reputable tokens
       description: Retrieves a list of token IDs for all tokens with a Reputable reputation
+      tags:
+        - Token Lists
       responses:
         '200':
           description: Successful response
@@ -351,12 +499,14 @@ paths:
                 type: array
                 items:
                   type: string
-                example: ["reputable_token1.near", "reputable_token2.near"]
+              example: ["token.0xshitzu.near", "intel.tkn.near"]
 
   /tokens-unknown-or-better:
     get:
       summary: Get detailed information for tokens with Unknown or better reputation
       description: Retrieves detailed information for all tokens with a reputation of Unknown, NotFake, or Reputable
+      tags:
+        - Token Lists
       responses:
         '200':
           description: Successful response
@@ -366,11 +516,33 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/TokenDetail'
+              example:
+                - account_id: "intel.tkn.near"
+                  price_usd_raw: "0.00000000000000000031403698393197025855699805282527104886657659586331948545230257399577125154783353178706988307614885060246835558957366870252978089345781996132921994271391922684056465779502553052217848616272206867258696"
+                  price_usd: "0.00000031403698393197025855699805282527104886657659586331948545230257399577125154783353178706988307614885060246835558957366870252978089345781996132921994271391922684056465779502553052217848616272206867258696000000000000"
+                  price_usd_hardcoded: "0.00000031403698393197025855699805282527104886657659586331948545230257399577125154783353178706988307614885060246835558957366870252978089345781996132921994271391922684056465779502553052217848616272206867258696000000000000"
+                  main_pool: "REF-4663"
+                  metadata:
+                    name: "INTEAR"
+                    symbol: "INTEL"
+                    decimals: 18
+                  total_supply: "100000000000000000000000000000"
+                  circulating_supply: "100000000000000000000000000000"
+                  circulating_supply_excluding_team: "98650377280100000000000000001"
+                  reputation: "Reputable"
+                  socials:
+                    website: "https://intear.tech"
+                    telegram: "https://t.me/intearchat"
+                    twitter: "https://x.com/intelnear"
+                  slug: []
+                  deleted: false
 
   /tokens-notfake-or-better:
     get:
       summary: Get detailed information for tokens with NotFake or better reputation
       description: Retrieves detailed information for all tokens with a reputation of NotFake or Reputable
+      tags:
+        - Token Lists
       responses:
         '200':
           description: Successful response
@@ -380,11 +552,33 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/TokenDetail'
+              example:
+                - account_id: "intel.tkn.near"
+                  price_usd_raw: "0.00000000000000000031403698393197025855699805282527104886657659586331948545230257399577125154783353178706988307614885060246835558957366870252978089345781996132921994271391922684056465779502553052217848616272206867258696"
+                  price_usd: "0.00000031403698393197025855699805282527104886657659586331948545230257399577125154783353178706988307614885060246835558957366870252978089345781996132921994271391922684056465779502553052217848616272206867258696000000000000"
+                  price_usd_hardcoded: "0.00000031403698393197025855699805282527104886657659586331948545230257399577125154783353178706988307614885060246835558957366870252978089345781996132921994271391922684056465779502553052217848616272206867258696000000000000"
+                  main_pool: "REF-4663"
+                  metadata:
+                    name: "INTEAR"
+                    symbol: "INTEL"
+                    decimals: 18
+                  total_supply: "100000000000000000000000000000"
+                  circulating_supply: "100000000000000000000000000000"
+                  circulating_supply_excluding_team: "98650377280100000000000000001"
+                  reputation: "Reputable"
+                  socials:
+                    website: "https://intear.tech"
+                    telegram: "https://t.me/intearchat"
+                    twitter: "https://x.com/intelnear"
+                  slug: []
+                  deleted: false
 
   /tokens-reputable:
     get:
       summary: Get detailed information for reputable tokens
       description: Retrieves detailed information for all tokens with a Reputable reputation
+      tags:
+        - Token Lists
       responses:
         '200':
           description: Successful response
@@ -394,6 +588,26 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/TokenDetail'
+              example:
+                - account_id: "intel.tkn.near"
+                  price_usd_raw: "0.00000000000000000031403698393197025855699805282527104886657659586331948545230257399577125154783353178706988307614885060246835558957366870252978089345781996132921994271391922684056465779502553052217848616272206867258696"
+                  price_usd: "0.00000031403698393197025855699805282527104886657659586331948545230257399577125154783353178706988307614885060246835558957366870252978089345781996132921994271391922684056465779502553052217848616272206867258696000000000000"
+                  price_usd_hardcoded: "0.00000031403698393197025855699805282527104886657659586331948545230257399577125154783353178706988307614885060246835558957366870252978089345781996132921994271391922684056465779502553052217848616272206867258696000000000000"
+                  main_pool: "REF-4663"
+                  metadata:
+                    name: "INTEAR"
+                    symbol: "INTEL"
+                    decimals: 18
+                  total_supply: "100000000000000000000000000000"
+                  circulating_supply: "100000000000000000000000000000"
+                  circulating_supply_excluding_team: "98650377280100000000000000001"
+                  reputation: "Reputable"
+                  socials:
+                    website: "https://intear.tech"
+                    telegram: "https://t.me/intearchat"
+                    twitter: "https://x.com/intelnear"
+                  slug: []
+                  deleted: false
 
 components:
   schemas:
