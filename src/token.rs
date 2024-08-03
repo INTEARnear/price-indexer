@@ -89,7 +89,12 @@ fn default_account_id() -> AccountId {
 
 impl Token {
     pub fn sorting_score(&self, search: &str) -> u32 {
-        let relevancy = if search.trim_start_matches('$')
+        let relevancy = if self.account_id == "wrap.near"
+            && ("near".starts_with(&search.to_ascii_lowercase())
+                || "wnear".starts_with(&search.to_ascii_lowercase()))
+        {
+            42_000
+        } else if search.trim_start_matches('$')
             == self.metadata.name.to_lowercase().trim_start_matches('$')
             || search.trim_start_matches('$')
                 == self.metadata.symbol.to_lowercase().trim_start_matches('$')
