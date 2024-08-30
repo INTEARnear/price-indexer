@@ -160,7 +160,12 @@ pub async fn launch_http_server(
                         let tokens = Arc::clone(&tokens);
                         async move {
                             let tokens = tokens.read().await;
-                            let results = tokens.search_tokens(&query.query.to_lowercase(), query.take, query.reputation);
+                            let results = tokens.search_tokens(
+                                &query.query.to_lowercase(),
+                                query.take,
+                                query.reputation,
+                                query.account_id.clone()
+                            ).await;
                             HttpResponse::Ok()
                                 .insert_header(("Cache-Control", "public, max-age=3600"))
                                 .json(results)
@@ -344,6 +349,8 @@ struct TokenSearch {
     take: usize,
     #[serde(rename = "rep", default)]
     reputation: TokenScore,
+    #[serde(rename = "acc", default)]
+    account_id: Option<AccountId>,
 }
 
 fn default_search_take() -> usize {

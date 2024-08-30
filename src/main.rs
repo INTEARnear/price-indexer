@@ -28,6 +28,7 @@ use intear_events::events::{
     trade::trade_pool_change::{TradePoolChangeEvent, TradePoolChangeEventData},
 };
 use itertools::Itertools;
+use lazy_static::lazy_static;
 use near_jsonrpc_client::{
     errors::{JsonRpcError, JsonRpcServerError},
     methods::query::RpcQueryError,
@@ -45,6 +46,17 @@ use tokio::{
     io::AsyncWriteExt,
 };
 use tokio_util::sync::CancellationToken;
+
+lazy_static! {
+    static ref CLIENT: reqwest::Client = reqwest::Client::builder()
+        .user_agent("Intear Xeon")
+        .build()
+        .expect("Failed to create reqwest client");
+}
+
+pub fn get_reqwest_client() -> &'static reqwest::Client {
+    &CLIENT
+}
 
 const SPAM_TOKENS_FILE: &str = "spam_tokens.txt";
 const MAX_REDIS_EVENT_BUFFER_SIZE: usize = 100_000;
@@ -260,7 +272,8 @@ async fn main() -> anyhow::Result<()> {
                                     timestamp_nanosec: block_timestamp_nanosec,
                                 },
                                 MAX_REDIS_EVENT_BUFFER_SIZE,
-                            ) {
+                            )
+                            .await {
                                 log::error!("Failed to emit price token event: {err:?}");
                             }
                     }
@@ -454,11 +467,14 @@ async fn process_pool(
         token1_in_1_token0: pool_data.ratios.1.clone(),
         timestamp_nanosec: event.block_timestamp_nanosec,
     };
-    if let Err(err) = pool_price_stream.emit_event(
-        event.block_height,
-        pool_price_event,
-        MAX_REDIS_EVENT_BUFFER_SIZE,
-    ) {
+    if let Err(err) = pool_price_stream
+        .emit_event(
+            event.block_height,
+            pool_price_event,
+            MAX_REDIS_EVENT_BUFFER_SIZE,
+        )
+        .await
+    {
         log::error!("Failed to emit price pool event: {err:?}");
     }
 }
@@ -491,8 +507,9 @@ async fn process_token(
     drop(token_read);
 
     for event in events {
-        if let Err(err) =
-            token_price_stream.emit_event(event.block_height, event, MAX_REDIS_EVENT_BUFFER_SIZE)
+        if let Err(err) = token_price_stream
+            .emit_event(event.block_height, event, MAX_REDIS_EVENT_BUFFER_SIZE)
+            .await
         {
             log::error!("Failed to emit price token event: {err:?}");
         }

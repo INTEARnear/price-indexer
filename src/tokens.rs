@@ -4,13 +4,16 @@ use std::{
     time::{Duration, Instant},
 };
 
-use inindexer::near_indexer_primitives::types::AccountId;
+use cached::proc_macro::cached;
+use inindexer::near_indexer_primitives::types::{AccountId, Balance, BlockHeight};
+use inindexer::near_utils::dec_format;
 use intear_events::events::trade::trade_pool_change::PoolType;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use sqlx::types::BigDecimal;
 
 use crate::{
+    get_reqwest_client,
     pool_data::PoolData,
     supply::{get_circulating_supply, get_total_supply},
     token::{calculate_price, get_hardcoded_price_usd, Token, TokenScore},
@@ -254,20 +257,74 @@ impl Tokens {
         }
     }
 
-    pub fn search_tokens(
+    pub async fn search_tokens(
         &self,
         search: &str,
         take: usize,
         min_reputation: TokenScore,
+        account_id: Option<AccountId>,
     ) -> Vec<&Token> {
+        let owned_tokens = if let Some(account_id) = account_id {
+            get_owned_tokens(account_id).await
+        } else {
+            HashMap::new()
+        };
         self.tokens
             .values()
             .filter(|token| token.reputation >= min_reputation)
-            .map(|token| (token, token.sorting_score(search)))
+            .map(|token| {
+                (
+                    token,
+                    token.sorting_score(search)
+                        * match owned_tokens.get(&token.account_id) {
+                            None => 10,
+                            Some(0) => 12,
+                            Some(1..) => 13,
+                        },
+                )
+            })
             .filter(|(_, score)| *score > 0)
             .sorted_by_key(|(_, score)| -(*score as i32))
             .map(|(token, _)| token)
             .take(take)
             .collect()
+    }
+}
+
+#[cached(time = 3600)]
+async fn get_owned_tokens(account_id: AccountId) -> HashMap<AccountId, u128> {
+    #[derive(Debug, Deserialize)]
+    struct Response {
+        tokens: Vec<Token>,
+        #[allow(dead_code)]
+        account_id: AccountId,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct Token {
+        #[allow(dead_code)]
+        last_update_block_height: Option<BlockHeight>,
+        contract_id: AccountId,
+        #[serde(with = "dec_format")]
+        balance: Balance,
+    }
+
+    let url = format!("https://api.fastnear.com/v1/account/{account_id}/ft");
+    match get_reqwest_client().get(&url).send().await {
+        Ok(response) => match response.json::<Response>().await {
+            Ok(response) => response
+                .tokens
+                .into_iter()
+                .map(|ft| (ft.contract_id, ft.balance))
+                .collect(),
+            Err(e) => {
+                log::warn!("Failed to parse response of FTs owned by {account_id}: {e:?}");
+                HashMap::new()
+            }
+        },
+        Err(e) => {
+            log::warn!("Failed to get FTs owned by {account_id}: {e:?}");
+            HashMap::new()
+        }
     }
 }

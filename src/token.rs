@@ -9,10 +9,10 @@ use num_traits::cast::ToPrimitive;
 use serde::{Deserialize, Serialize};
 use sqlx::types::BigDecimal;
 
-use crate::pool_data::PoolData;
 use crate::token_metadata::TokenMetadataWithoutIcon;
 use crate::tokens::USD_TOKEN;
 use crate::utils::serde_bigdecimal;
+use crate::{get_reqwest_client, pool_data::PoolData};
 
 type GetTokenPriceFn = fn(&BigDecimal) -> BigDecimal;
 const HARDCODED_TOKEN_PRICES: &[(&str, GetTokenPriceFn)] = &[
@@ -277,8 +277,6 @@ pub fn get_reputation(token_id: &AccountId, spam_tokens: &HashSet<AccountId>) ->
         | "touched.tkn.near"
         | "bgn.tkn.near"
         | "babyblackdragon.tkn.near"
-        | "a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.factory.bridge.near"
-        | "dac17f958d2ee523a2206206994597c13d831ec7.factory.bridge.near"
         | "438e48ed4ce6beecf503d43b9dbd3c30d516e7fd.factory.bridge.near"
         | "c02aaa39b223fe8d0a0e5c4f27ead9083c756cc2.factory.bridge.near"
         | "sol.token.a11bd.near"
@@ -314,6 +312,8 @@ pub fn get_reputation(token_id: &AccountId, spam_tokens: &HashSet<AccountId>) ->
         | "111111111117dc0aa78b770fa6a738034120c302.factory.bridge.near"
         | "853d955acef822db058eb8505911ed77f175b99e.factory.bridge.near"
         | "aaaaaa20d9e0e2461697782ef11675f668207961.factory.bridge.near"
+        | "dac17f958d2ee523a2206206994597c13d831ec7.factory.bridge.near"
+        | "a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.factory.bridge.near"
         | "token.paras.near" => TokenScore::Reputable,
         _ if spam_tokens.contains(token_id) => TokenScore::Spam,
         _ => TokenScore::Unknown,
@@ -327,8 +327,8 @@ pub fn get_slug(token_id: &AccountId) -> Vec<&'static str> {
         "token.sweat" => vec!["sweatcoin"],
         "jumptoken.jumpfinance.near" => vec!["jumpdefi"],
         "mpdao-token.near" => vec!["metapool", "meta pool"],
-        "dac17f958d2ee523a2206206994597c13d831ec7.factory.bridge.near" => vec!["usdte"],
-        "a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.factory.bridge.near" => vec!["usdce"],
+        "dac17f958d2ee523a2206206994597c13d831ec7.factory.bridge.near" => vec!["usdte", "usdt"],
+        "a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.factory.bridge.near" => vec!["usdce", "usdc"],
         _ => Vec::new(),
     }
 }
@@ -385,7 +385,7 @@ If the token details contain links, or otherwise appear to be spam that is massi
         input_tokens: u64,
         output_tokens: u64,
     }
-    let response: serde_json::Value = reqwest::Client::new()
+    let response: serde_json::Value = get_reqwest_client()
         .post("https://api.anthropic.com/v1/messages")
         .header("x-api-key", api_key)
         .header("anthropic-version", "2023-06-01")

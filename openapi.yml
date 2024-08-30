@@ -402,6 +402,12 @@ paths:
             type: string
             enum: [Spam, Unknown, NotFake, Reputable]
           description: The minimum reputation of the results
+        - name: acc
+          in: query
+          required: false
+          schema:
+            type: string
+          description: The account ID of the user. If the user owns or owned a token, it will be slightly boosted in search
       responses:
         '200':
           description: Successful response

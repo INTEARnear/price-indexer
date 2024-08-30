@@ -29,7 +29,7 @@ use near_jsonrpc_client::{
 use near_jsonrpc_primitives::types::query::QueryResponseKind;
 use serde::Deserialize;
 
-use crate::utils::RPC_URL;
+use crate::{get_reqwest_client, utils::RPC_URL};
 
 const ZERO_ADDRESS: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
@@ -44,8 +44,7 @@ async fn hardcoded_total_supply(token_id: AccountId) -> Option<Balance> {
                 result: Balance,
             }
 
-            let client = reqwest::Client::new();
-            let response = client
+            let response = get_reqwest_client()
                 .get("https://api.etherscan.io/api?module=stats&action=ethsupply")
                 .send()
                 .await
@@ -65,8 +64,7 @@ async fn hardcoded_total_supply(token_id: AccountId) -> Option<Balance> {
                 total_supply: Balance,
             }
 
-            let client = reqwest::Client::new();
-            let response = client
+            let response = get_reqwest_client()
                 .get("https://api3.nearblocks.io/v1/stats")
                 .send()
                 .await
