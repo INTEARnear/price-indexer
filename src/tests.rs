@@ -105,14 +105,15 @@ async fn test_prices() {
         .update_pool("REF-4663", intel_near_pool, intel_near_data)
         .await;
     assert_eq!(
-        tokens
-            .tokens
-            .get(&"intel.tkn.near".parse::<AccountId>().unwrap())
-            .unwrap()
-            .price_usd
-            .with_prec(3)
-            .to_string(),
-        "0.000000756"
+        format!(
+            "{:.2}",
+            tokens
+                .tokens
+                .get(&"intel.tkn.near".parse::<AccountId>().unwrap())
+                .unwrap()
+                .price_usd
+        ),
+        "7.56E-7"
     );
 
     // Other token (intel) pool
@@ -219,14 +220,15 @@ async fn test_prices() {
         .update_pool("TEST-69", intel_usdt_pool, intel_near_data)
         .await;
     assert_eq!(
-        tokens
-            .tokens
-            .get(&"intel.tkn.near".parse::<AccountId>().unwrap())
-            .unwrap()
-            .price_usd
-            .with_prec(3)
-            .to_string(),
-        "0.000000756"
+        format!(
+            "{:.2}",
+            tokens
+                .tokens
+                .get(&"intel.tkn.near".parse::<AccountId>().unwrap())
+                .unwrap()
+                .price_usd
+        ),
+        "7.56E-7"
     );
 
     // Add new pool with higher token liquidity, price should change
