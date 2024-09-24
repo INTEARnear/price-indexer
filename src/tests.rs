@@ -34,10 +34,9 @@ async fn test_prices() {
     use intear_events::events::trade::trade_pool_change::*;
 
     let mut tokens = Tokens::new();
-    assert!(tokens
+    assert!(!tokens
         .tokens
-        .get(&"wrap.near".parse::<AccountId>().unwrap())
-        .is_none());
+        .contains_key(&"wrap.near".parse::<AccountId>().unwrap()));
 
     // USDT pool
     let near_usdt_pool = PoolType::Ref(RefPool::SimplePool(RefSimplePool {

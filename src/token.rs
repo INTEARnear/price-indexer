@@ -88,13 +88,15 @@ fn default_account_id() -> AccountId {
 }
 
 impl Token {
-    pub fn sorting_score(&self, search: &str) -> u32 {
-        let relevancy = if self.account_id == "wrap.near"
-            && ("near".starts_with(&search.to_ascii_lowercase())
-                || "wnear".starts_with(&search.to_ascii_lowercase()))
+    pub fn sorting_score(&self, search: &str) -> u128 {
+        if self.account_id == "wrap.near"
+            && ("near".starts_with(search)
+                || "wnear".starts_with(search)
+                || "wrap.near".starts_with(search))
         {
-            u32::MAX
-        } else if search.trim_start_matches('$')
+            return 69696969696969;
+        }
+        let relevancy = if search.trim_start_matches('$')
             == self.metadata.name.to_lowercase().trim_start_matches('$')
             || search.trim_start_matches('$')
                 == self.metadata.symbol.to_lowercase().trim_start_matches('$')

@@ -1,3 +1,4 @@
+use std::cmp::Reverse;
 use std::{
     collections::{HashMap, HashSet},
     str::FromStr,
@@ -275,16 +276,17 @@ impl Tokens {
             .map(|token| {
                 (
                     token,
-                    token.sorting_score(search)
-                        * match owned_tokens.get(&token.account_id) {
+                    token.sorting_score(search).saturating_mul(
+                        match owned_tokens.get(&token.account_id) {
                             None => 10,
                             Some(0) => 12,
                             Some(1..) => 13,
                         },
+                    ),
                 )
             })
             .filter(|(_, score)| *score > 0)
-            .sorted_by_key(|(_, score)| -(*score as i32))
+            .sorted_by_key(|(_, score)| Reverse(*score))
             .map(|(token, _)| token)
             .take(take)
             .collect()
