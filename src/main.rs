@@ -8,6 +8,7 @@ mod token_metadata;
 mod tokens;
 mod utils;
 
+use std::time::SystemTime;
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fs::File,
@@ -204,6 +205,10 @@ async fn main() -> anyhow::Result<()> {
             let tokens = tokens_clone.read().await;
             let mut spam_pending = Vec::new();
             let block_lock = current_block_clone.lock().await;
+            let timestamp_nanosec = SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .expect("Failed to get timestamp")
+                .as_nanos();
             for (token_id, token) in tokens.tokens.iter() {
                 if token.deleted {
                     continue;
@@ -264,7 +269,7 @@ async fn main() -> anyhow::Result<()> {
                                     block_height,
                                     token: token_id.clone(),
                                     price_usd: token.price_usd_raw.clone(),
-                                    timestamp_nanosec: block_timestamp_nanosec,
+                                    timestamp_nanosec: timestamp_nanosec.max(block_timestamp_nanosec),
                                 },
                                 MAX_REDIS_EVENT_BUFFER_SIZE,
                             )
