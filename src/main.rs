@@ -49,7 +49,7 @@ use tokio_util::sync::CancellationToken;
 
 lazy_static! {
     static ref CLIENT: reqwest::Client = reqwest::Client::builder()
-        .user_agent("Intear Xeon")
+        .user_agent("Intear Price Indexer")
         .build()
         .expect("Failed to create reqwest client");
 }
@@ -117,11 +117,6 @@ async fn main() -> anyhow::Result<()> {
     log::info!("Metadata updated");
     let tokens = Arc::new(RwLock::new(tokens));
 
-    let redis_connection = ConnectionManager::new(Client::open(
-        std::env::var("REDIS_URL").expect("REDIS_URL enviroment variable not set"),
-    )?)
-    .await?;
-
     let tokens_clone = Arc::clone(&tokens);
 
     // This mutex is used to enforce strict order of event block heights. Even though the "every 5s for all tokens"
@@ -129,7 +124,7 @@ async fn main() -> anyhow::Result<()> {
     // While this mutex is locked, the block height can't be updated by pool change events.
     let last_event_block_height = Arc::new(Mutex::new(None));
 
-    let block_lock = Arc::new(Mutex::new(None));
+    let current_block = Arc::new(Mutex::new(None));
 
     let json_serialized = Arc::new(RwLock::new(None));
 
@@ -142,16 +137,17 @@ async fn main() -> anyhow::Result<()> {
     )));
 
     let token_price_stream = Arc::new(RedisEventStream::<PriceTokenEventData>::new(
-        redis_connection.clone(),
+        create_redis_connection().await,
         PriceTokenEvent::ID,
     ));
     let pool_price_stream = Arc::new(RedisEventStream::<PricePoolEventData>::new(
-        redis_connection.clone(),
+        create_redis_connection().await,
         PricePoolEvent::ID,
     ));
 
     let cancellation_token_clone = cancellation_token.clone();
     let token_price_stream_clone = Arc::clone(&token_price_stream);
+    let current_block_clone = Arc::clone(&current_block);
     let mut interval = tokio::time::interval(Duration::from_secs(5));
     join_handles.push(tokio::spawn(async move {
         loop {
@@ -206,9 +202,8 @@ async fn main() -> anyhow::Result<()> {
 
             drop(tokens);
             let tokens = tokens_clone.read().await;
-            let mut to_add_in_spam = Vec::new();
-            let block_lock_clone = block_lock.lock().await;
-
+            let mut spam_pending = Vec::new();
+            let block_lock = current_block_clone.lock().await;
             for (token_id, token) in tokens.tokens.iter() {
                 if token.deleted {
                     continue;
@@ -222,7 +217,7 @@ async fn main() -> anyhow::Result<()> {
                     if token.reputation == TokenScore::Unknown {
                         match is_spam(&meta_stringified).await {
                             Ok(true) => {
-                                to_add_in_spam.push(token_id.clone());
+                                spam_pending.push(token_id.clone());
                             },
                             Ok(false) => {}
                             Err(e) => log::warn!("Failed to check spam for {token_id}: {e:?}\nDetails:\n{meta_stringified}"),
@@ -261,10 +256,10 @@ async fn main() -> anyhow::Result<()> {
                     super_precise_with_hardcoded
                         .insert(token_id.clone(), price_usd_hardcoded.to_string());
 
-                    if let Some((block_height, block_timestamp_nanosec)) = *block_lock_clone {
+                    if let Some((block_height, block_timestamp_nanosec)) = *block_lock {
                         if let Err(err) = token_price_stream_clone
                             .emit_event(
-                                0,
+                                block_height,
                                 PriceTokenEventData {
                                     block_height,
                                     token: token_id.clone(),
@@ -279,7 +274,7 @@ async fn main() -> anyhow::Result<()> {
                     }
                 }
             }
-            drop(block_lock_clone);
+            drop(block_lock);
             let full_data = serde_json::to_string(&tokens.tokens).unwrap();
             drop(tokens);
             let ref_compatibility_format = ref_compatibility_format
@@ -304,7 +299,7 @@ async fn main() -> anyhow::Result<()> {
             });
             log::info!("Updated all prices");
 
-            if !to_add_in_spam.is_empty() {
+            if !spam_pending.is_empty() {
                 let mut file = OpenOptions::new()
                     .create(true)
                     .write(true)
@@ -313,7 +308,7 @@ async fn main() -> anyhow::Result<()> {
                     .await
                     .expect("Failed to open spam tokens file");
                 let existing_spam_list = tokens_clone.read().await.spam_tokens.clone();
-                for token in to_add_in_spam.iter() {
+                for token in spam_pending.iter() {
                     if !existing_spam_list.contains(token) {
                         file.write_all(format!("{token} // added by AI\n").as_bytes())
                             .await
@@ -325,12 +320,12 @@ async fn main() -> anyhow::Result<()> {
                     .expect("Failed to flush spam tokens file");
                 drop(file);
                 let mut tokens = tokens_clone.write().await;
-                for token in to_add_in_spam.iter() {
+                for token in spam_pending.iter() {
                     if let Some(token) = tokens.tokens.get_mut(token) {
                         token.reputation = TokenScore::Spam;
                     }
                 }
-                tokens.spam_tokens.extend(to_add_in_spam);
+                tokens.spam_tokens.extend(spam_pending);
             }
 
             save_tokens(&*tokens_clone.read().await).await;
@@ -339,11 +334,10 @@ async fn main() -> anyhow::Result<()> {
     }));
 
     let tokens_clone = Arc::clone(&tokens);
-    let redis_connection_clone = redis_connection.clone();
     let cancellation_token_clone = cancellation_token.clone();
     join_handles.push(tokio::spawn(async move {
         RedisEventStream::<NewContractNep141EventData>::new(
-            redis_connection_clone,
+            create_redis_connection().await,
             NewContractNep141Event::ID,
         )
         .start_reading_events(
@@ -366,8 +360,9 @@ async fn main() -> anyhow::Result<()> {
     let pool_price_stream_clone = Arc::clone(&pool_price_stream);
     let token_price_stream_clone = Arc::clone(&token_price_stream);
     join_handles.push(tokio::spawn(async move {
+        let current_block = &current_block;
         RedisEventStream::<TradePoolChangeEventData>::new(
-            redis_connection.clone(),
+            create_redis_connection().await,
             TradePoolChangeEvent::ID,
         )
         .start_reading_events(
@@ -384,7 +379,14 @@ async fn main() -> anyhow::Result<()> {
                         .replace((event.block_height, event.block_timestamp_nanosec));
                     if let Some(pool_data) = extract_pool_data(&event.pool) {
                         process_pool(&event, &pool_data, &pool_price_stream).await;
-                        process_token(&event, &pool_data, &token_price_stream, &tokens).await;
+                        process_token(
+                            &event,
+                            &pool_data,
+                            &token_price_stream,
+                            &tokens,
+                            current_block,
+                        )
+                        .await;
                     } else {
                         log::warn!("Ratios can't be extracted from pool {}", event.pool_id);
                     }
@@ -484,6 +486,7 @@ async fn process_token(
     pool_data: &PoolData,
     token_price_stream: &RedisEventStream<PriceTokenEventData>,
     tokens: &Arc<RwLock<Tokens>>,
+    current_block: &Arc<Mutex<Option<(u64, u128)>>>,
 ) {
     let mut tokens_write = tokens.write().await;
     tokens_write
@@ -506,6 +509,7 @@ async fn process_token(
     }
     drop(token_read);
 
+    let mut block_lock = current_block.lock().await;
     for event in events {
         if let Err(err) = token_price_stream
             .emit_event(event.block_height, event, MAX_REDIS_EVENT_BUFFER_SIZE)
@@ -514,4 +518,14 @@ async fn process_token(
             log::error!("Failed to emit price token event: {err:?}");
         }
     }
+    *block_lock = Some((event.block_height, event.block_timestamp_nanosec));
+}
+
+async fn create_redis_connection() -> ConnectionManager {
+    ConnectionManager::new(
+        Client::open(std::env::var("REDIS_URL").expect("REDIS_URL enviroment variable not set"))
+            .expect("Failed to create Redis client"),
+    )
+    .await
+    .expect("Failed to create Redis connection")
 }
