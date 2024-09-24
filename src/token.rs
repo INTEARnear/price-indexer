@@ -93,7 +93,7 @@ impl Token {
             && ("near".starts_with(&search.to_ascii_lowercase())
                 || "wnear".starts_with(&search.to_ascii_lowercase()))
         {
-            42_000
+            u32::MAX
         } else if search.trim_start_matches('$')
             == self.metadata.name.to_lowercase().trim_start_matches('$')
             || search.trim_start_matches('$')
