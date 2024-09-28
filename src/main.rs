@@ -120,10 +120,10 @@ async fn main() -> anyhow::Result<()> {
 
     let tokens_clone = Arc::clone(&tokens);
 
-    // This mutex is used to enforce strict order of event block heights. Even though the "every 5s for all tokens"
-    // loop doesn't have a block height, it needs to exist in Redis and database because API clients use it.
-    // While this mutex is locked, the block height can't be updated by pool change events.
-    let last_event_block_height = Arc::new(Mutex::new(None));
+    // This mutex is used to enforce strict order of event timestamps. Even though the "every 5s for all tokens"
+    // loop doesn't have a block height, some ordering needs to exist in Redis and database because API clients use
+    // it for pagination and filtering. While this mutex is locked, the block can't be updated by pool change events.
+    let last_event_block = Arc::new(Mutex::new(None));
 
     let current_block = Arc::new(Mutex::new(None));
 
@@ -261,15 +261,15 @@ async fn main() -> anyhow::Result<()> {
                     super_precise_with_hardcoded
                         .insert(token_id.clone(), price_usd_hardcoded.to_string());
 
-                    if let Some((block_height, block_timestamp_nanosec)) = *block_lock {
+                    if let Some(block_timestamp_nanosec) = *block_lock {
+                        let timestamp_nanosec = timestamp_nanosec.max(block_timestamp_nanosec);
                         if let Err(err) = token_price_stream_clone
                             .emit_event(
-                                block_height,
+                                timestamp_nanosec,
                                 PriceTokenEventData {
-                                    block_height,
                                     token: token_id.clone(),
                                     price_usd: token.price_usd_raw.clone(),
-                                    timestamp_nanosec: timestamp_nanosec.max(block_timestamp_nanosec),
+                                    timestamp_nanosec,
                                 },
                                 MAX_REDIS_EVENT_BUFFER_SIZE,
                             )
@@ -374,14 +374,14 @@ async fn main() -> anyhow::Result<()> {
             "pair_price_extractor",
             move |event| {
                 let tokens = Arc::clone(&tokens);
-                let last_event_block_height = Arc::clone(&last_event_block_height);
+                let last_event_block = Arc::clone(&last_event_block);
                 let pool_price_stream = Arc::clone(&pool_price_stream_clone);
                 let token_price_stream = Arc::clone(&token_price_stream_clone);
                 async move {
-                    last_event_block_height
+                    last_event_block
                         .lock()
                         .await
-                        .replace((event.block_height, event.block_timestamp_nanosec));
+                        .replace(event.block_timestamp_nanosec);
                     if let Some(pool_data) = extract_pool_data(&event.pool) {
                         process_pool(&event, &pool_data, &pool_price_stream).await;
                         process_token(
@@ -466,7 +466,6 @@ async fn process_pool(
     pool_price_stream: &RedisEventStream<PricePoolEventData>,
 ) {
     let pool_price_event = PricePoolEventData {
-        block_height: event.block_height,
         pool_id: event.pool_id.clone(),
         token0: pool_data.tokens.0.clone(),
         token1: pool_data.tokens.1.clone(),
@@ -476,7 +475,7 @@ async fn process_pool(
     };
     if let Err(err) = pool_price_stream
         .emit_event(
-            event.block_height,
+            event.block_timestamp_nanosec,
             pool_price_event,
             MAX_REDIS_EVENT_BUFFER_SIZE,
         )
@@ -491,7 +490,7 @@ async fn process_token(
     pool_data: &PoolData,
     token_price_stream: &RedisEventStream<PriceTokenEventData>,
     tokens: &Arc<RwLock<Tokens>>,
-    current_block: &Arc<Mutex<Option<(u64, u128)>>>,
+    current_block: &Arc<Mutex<Option<u128>>>,
 ) {
     let mut tokens_write = tokens.write().await;
     tokens_write
@@ -504,7 +503,6 @@ async fn process_token(
     for token_id in [&pool_data.tokens.0, &pool_data.tokens.1] {
         if let Some(token) = token_read.tokens.get(token_id) {
             let token_price_event = PriceTokenEventData {
-                block_height: event.block_height,
                 token: token_id.clone(),
                 price_usd: token.price_usd_raw.clone(),
                 timestamp_nanosec: event.block_timestamp_nanosec,
@@ -517,13 +515,13 @@ async fn process_token(
     let mut block_lock = current_block.lock().await;
     for event in events {
         if let Err(err) = token_price_stream
-            .emit_event(event.block_height, event, MAX_REDIS_EVENT_BUFFER_SIZE)
+            .emit_event(event.timestamp_nanosec, event, MAX_REDIS_EVENT_BUFFER_SIZE)
             .await
         {
             log::error!("Failed to emit price token event: {err:?}");
         }
     }
-    *block_lock = Some((event.block_height, event.block_timestamp_nanosec));
+    *block_lock = Some(event.block_timestamp_nanosec);
 }
 
 async fn create_redis_connection() -> ConnectionManager {
