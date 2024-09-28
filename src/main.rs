@@ -8,7 +8,6 @@ mod token_metadata;
 mod tokens;
 mod utils;
 
-use std::future::Future;
 use std::time::{Instant, SystemTime};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
@@ -37,7 +36,7 @@ use near_jsonrpc_client::{
 };
 use pool_data::{extract_pool_data, PoolData};
 use redis::{aio::ConnectionManager, Client};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use supply::{get_circulating_supply, get_total_supply};
 use token::{get_reputation, get_slug, get_socials, is_spam, TokenScore};
 use token_metadata::{get_token_metadata, MetadataError};
@@ -76,7 +75,7 @@ struct JsonSerializedPrices {
     full_data: String,
 }
 
-#[actix_web::main]
+#[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
     simple_logger::SimpleLogger::new()
@@ -121,8 +120,6 @@ async fn main() -> anyhow::Result<()> {
 
     let tokens_clone = Arc::clone(&tokens);
 
-    let time_provider = Arc::new(SynchronousTimeProvider::new());
-
     let json_serialized = Arc::new(RwLock::new(None));
 
     let cancellation_token = CancellationToken::new();
@@ -141,12 +138,14 @@ async fn main() -> anyhow::Result<()> {
         create_redis_connection().await,
         PricePoolEvent::ID,
     ));
+    let time_provider = Arc::new(SharedSynchronousEventSender::new(Arc::clone(
+        &token_price_stream,
+    )));
 
     let cancellation_token_clone = cancellation_token.clone();
-    let token_price_stream_clone = Arc::clone(&token_price_stream);
-    let time_provider = Arc::clone(&time_provider);
+    let token_event_sender = Arc::clone(&time_provider);
     let mut interval = tokio::time::interval(Duration::from_secs(5));
-    let time_provider_clone = Arc::clone(&time_provider);
+    let time_provider_clone = Arc::clone(&token_event_sender);
     join_handles.push(tokio::spawn(async move {
         loop {
             if cancellation_token_clone.is_cancelled() {
@@ -187,20 +186,41 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
 
+
+            let mut spam_pending = Vec::new();
+            let mut token_metadatas = HashMap::new();
+            for (token_id, token) in tokens_clone.read().await.tokens.iter() {
+                if token.deleted {
+                    continue;
+                }
+                if let Ok(token_metadata) = get_token_metadata(token_id.clone()).await {
+                    let meta_stringified = format!(
+                        "Symbol: {}\nName: {}\n",
+                        token_metadata.symbol.replace('\n', " "),
+                        token_metadata.name.replace('\n', " ")
+                    );
+                    token_metadatas.insert(token_id.clone(), token_metadata);
+                    if token.reputation == TokenScore::Unknown {
+                        match is_spam(&meta_stringified).await {
+                            Ok(true) => {
+                                spam_pending.push(token_id.clone());
+                            },
+                            Ok(false) => {}
+                            Err(e) => log::warn!("Failed to check spam for {token_id}: {e:?}\nDetails:\n{meta_stringified}"),
+                        }
+                    }
+                }
+            }
+
             let tokens = tokens_clone.read().await;
-            let token_price_stream_clone = &token_price_stream_clone;
-            let tokens = &tokens;
             let (
-                spam_pending,
                 prices_only,
                 ref_compatibility_format,
                 super_precise,
                 prices_only_with_hardcoded,
                 ref_compatibility_format_with_hardcoded,
                 super_precise_with_hardcoded,
-            ) = time_provider_clone.with_time(|event_time| async move {
-                let mut spam_pending = Vec::new();
-
+            ) = time_provider_clone.with_time(|event_time| {
                 let mut prices_only = HashMap::new();
                 let mut ref_compatibility_format = HashMap::new();
                 let mut super_precise = HashMap::new();
@@ -209,28 +229,13 @@ async fn main() -> anyhow::Result<()> {
                 let mut ref_compatibility_format_with_hardcoded = HashMap::new();
                 let mut super_precise_with_hardcoded = HashMap::new();
 
+                let mut pending_events = Vec::new();
                 for (token_id, token) in tokens.tokens.iter() {
                     if token.deleted {
                         continue;
                     }
-                    if let Ok(token_metadata) = get_token_metadata(token_id.clone()).await {
-                        let meta_stringified = format!(
-                            "Symbol: {}\nName: {}\n",
-                            token_metadata.symbol.replace('\n', " "),
-                            token_metadata.name.replace('\n', " ")
-                        );
-                        if token.reputation == TokenScore::Unknown {
-                            match is_spam(&meta_stringified).await {
-                                Ok(true) => {
-                                    spam_pending.push(token_id.clone());
-                                },
-                                Ok(false) => {}
-                                Err(e) => log::warn!("Failed to check spam for {token_id}: {e:?}\nDetails:\n{meta_stringified}"),
-                            }
-                        }
-
+                    if let Some(token_metadata) = token_metadatas.get(token_id) {
                         let price_usd = &token.price_usd;
-
                         let price_f64 = f64::from_str(&price_usd.to_string()).unwrap();
                         let price_ref_scale = price_usd.with_scale(12);
 
@@ -261,33 +266,25 @@ async fn main() -> anyhow::Result<()> {
                         super_precise_with_hardcoded
                             .insert(token_id.clone(), price_usd_hardcoded.to_string());
 
-                        if let Err(err) = token_price_stream_clone
-                            .emit_event(
-                                event_time,
-                                PriceTokenEventData {
+                            pending_events.push(PriceTokenEventData {
                                     token: token_id.clone(),
                                     price_usd: token.price_usd_raw.clone(),
                                     timestamp_nanosec: event_time,
-                                },
-                                MAX_REDIS_EVENT_BUFFER_SIZE,
-                            )
-                            .await {
-                                log::error!("Failed to emit price token event: {err:?}");
-                            }
+                                });
                     }
                 }
 
-                (
-                    spam_pending,
+                (pending_events, (
                     prices_only,
                     ref_compatibility_format,
                     super_precise,
                     prices_only_with_hardcoded,
                     ref_compatibility_format_with_hardcoded,
                     super_precise_with_hardcoded,
-                )
+                ))
             }).await;
             let full_data = serde_json::to_string(&tokens.tokens).unwrap();
+            drop(tokens);
             let ref_compatibility_format = ref_compatibility_format
                 .into_iter()
                 .sorted_by_key(|(token_id, _)| token_id.to_string())
@@ -333,7 +330,7 @@ async fn main() -> anyhow::Result<()> {
                 if !spam_pending.is_empty() {
                     let mut tokens = tokens_clone.write().await;
                     for token in spam_pending.iter() {
-                        if let Some(token) = tokens_clone.write().await.tokens.get_mut(token) {
+                        if let Some(token) = tokens.tokens.get_mut(token) {
                             token.reputation = TokenScore::Spam;
                         }
                     }
@@ -371,10 +368,8 @@ async fn main() -> anyhow::Result<()> {
 
     let cancellation_token_clone = cancellation_token.clone();
     let pool_price_stream_clone = Arc::clone(&pool_price_stream);
-    let token_price_stream_clone = Arc::clone(&token_price_stream);
-    let time_provider_clone = Arc::clone(&time_provider);
     join_handles.push(tokio::spawn(async move {
-        let time_provider_clone = &time_provider_clone;
+        let token_event_sender_clone = &token_event_sender;
         RedisEventStream::<TradePoolChangeEventData>::new(
             create_redis_connection().await,
             TradePoolChangeEvent::ID,
@@ -384,18 +379,10 @@ async fn main() -> anyhow::Result<()> {
             move |event| {
                 let tokens = Arc::clone(&tokens);
                 let pool_price_stream = Arc::clone(&pool_price_stream_clone);
-                let token_price_stream = Arc::clone(&token_price_stream_clone);
                 async move {
                     if let Some(pool_data) = extract_pool_data(&event.pool) {
                         process_pool(&event, &pool_data, &pool_price_stream).await;
-                        process_token(
-                            &event,
-                            &pool_data,
-                            &token_price_stream,
-                            &tokens,
-                            time_provider_clone,
-                        )
-                        .await;
+                        process_token(&event, &pool_data, &tokens, token_event_sender_clone).await;
                     } else {
                         log::warn!("Ratios can't be extracted from pool {}", event.pool_id);
                     }
@@ -492,9 +479,8 @@ async fn process_pool(
 async fn process_token(
     event: &TradePoolChangeEventData,
     pool_data: &PoolData,
-    token_price_stream: &RedisEventStream<PriceTokenEventData>,
     tokens: &Arc<RwLock<Tokens>>,
-    time_provider: &Arc<SynchronousTimeProvider>,
+    token_event_sender: &Arc<SharedSynchronousEventSender<PriceTokenEventData>>,
 ) {
     tokens
         .write()
@@ -502,10 +488,10 @@ async fn process_token(
         .update_pool(&event.pool_id, event.pool.clone(), pool_data.clone())
         .await;
 
-    let events = time_provider
-        .with_time(|event_time| async move {
+    let token_read = tokens.read().await;
+    token_event_sender
+        .with_time(|event_time| {
             let mut events = Vec::new();
-            let token_read = tokens.read().await;
             for token_id in [&pool_data.tokens.0, &pool_data.tokens.1] {
                 if let Some(token) = token_read.tokens.get(token_id) {
                     let token_price_event = PriceTokenEventData {
@@ -517,18 +503,9 @@ async fn process_token(
                 }
             }
             drop(token_read);
-            events
+            (events, ())
         })
         .await;
-
-    for event in events {
-        if let Err(err) = token_price_stream
-            .emit_event(event.timestamp_nanosec, event, MAX_REDIS_EVENT_BUFFER_SIZE)
-            .await
-        {
-            log::error!("Failed to emit price token event: {err:?}");
-        }
-    }
 }
 
 async fn create_redis_connection() -> ConnectionManager {
@@ -543,26 +520,42 @@ async fn create_redis_connection() -> ConnectionManager {
 /// This lock is used to enforce strict order of event timestamps. Even though the "every 5s for all tokens"
 /// loop doesn't have a block height, some ordering needs to exist in Redis and database because API clients use
 /// it for pagination and filtering. While this mutex is locked, the block can't be updated by pool change events.
-#[derive(Debug)]
-struct SynchronousTimeProvider(Mutex<(Instant, u128)>);
+struct SharedSynchronousEventSender<
+    Event: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
+>(Mutex<(Instant, u128)>, Arc<RedisEventStream<Event>>);
 
-impl SynchronousTimeProvider {
-    fn new() -> Self {
-        Self(Mutex::new((
-            Instant::now(),
-            SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos(),
-        )))
+impl<Event: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static>
+    SharedSynchronousEventSender<Event>
+{
+    fn new(event_stream: Arc<RedisEventStream<Event>>) -> Self {
+        Self(
+            Mutex::new((
+                Instant::now(),
+                SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos(),
+            )),
+            event_stream,
+        )
     }
 
-    async fn with_time<T, F: Future<Output = T>>(&self, f: impl FnOnce(u128) -> F) -> T {
+    async fn with_time<T>(&self, f: impl FnOnce(u128) -> (Vec<Event>, T)) -> T {
         let lock = self.0.lock().await;
         let (starting_instant, starting_nanos) = *lock;
         let now_instant = Instant::now();
         let nanos_since_new = now_instant.duration_since(starting_instant).as_nanos();
         let nanos = starting_nanos + nanos_since_new;
-        f(nanos).await
+        let (events, data) = f(nanos);
+        for event in events {
+            if let Err(err) = self
+                .1
+                .emit_event(nanos, event, MAX_REDIS_EVENT_BUFFER_SIZE)
+                .await
+            {
+                log::error!("Failed to emit event at {nanos}: {err:?}");
+            }
+        }
+        data
     }
 }

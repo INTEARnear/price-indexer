@@ -146,6 +146,7 @@ impl Tokens {
                 return false;
             }
         }
+        log::info!("Trying to add token {token_id}");
         match get_token_metadata(token_id.clone()).await {
             Ok(metadata) => {
                 self.tokens.insert(
