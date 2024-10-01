@@ -291,6 +291,7 @@ pub fn get_reputation(token_id: &AccountId, spam_tokens: &HashSet<AccountId>) ->
         | "wojak.tkn.near" => TokenScore::NotFake,
         "token.lonkingnearbackto2024.near"
         | "token.sweat"
+        | "chill-129.meme-cooking.near"
         | "meta-pool.near"
         | "token.v2.ref-finance.near"
         | "intel.tkn.near"
