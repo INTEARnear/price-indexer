@@ -8,6 +8,8 @@ mod token_metadata;
 mod tokens;
 mod utils;
 
+use std::convert::Infallible;
+use std::fmt::Debug;
 use std::time::{Instant, SystemTime};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
@@ -357,7 +359,7 @@ async fn main() -> anyhow::Result<()> {
                 async move {
                     let token_id = event.account_id;
                     tokens.write().await.add_token(&token_id).await;
-                    Ok(())
+                    Ok::<(), Infallible>(())
                 }
             },
             || cancellation_token_clone.is_cancelled(),
@@ -386,7 +388,7 @@ async fn main() -> anyhow::Result<()> {
                     } else {
                         log::warn!("Ratios can't be extracted from pool {}", event.pool_id);
                     }
-                    Ok(())
+                    Ok::<(), Infallible>(())
                 }
             },
             || cancellation_token_clone.is_cancelled(),
@@ -524,7 +526,7 @@ struct SharedSynchronousEventSender<
     Event: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
 >(Mutex<(Instant, u128)>, Arc<RedisEventStream<Event>>);
 
-impl<Event: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static>
+impl<Event: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static + Debug>
     SharedSynchronousEventSender<Event>
 {
     fn new(event_stream: Arc<RedisEventStream<Event>>) -> Self {
