@@ -10,14 +10,13 @@ mod utils;
 
 use std::convert::Infallible;
 use std::fmt::Debug;
-use std::time::{Instant, SystemTime};
+use std::time::SystemTime;
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fs::File,
     io::{BufRead, BufReader},
     str::FromStr,
     sync::Arc,
-    time::Duration,
 };
 
 use http_server::launch_http_server;
@@ -38,12 +37,12 @@ use near_jsonrpc_client::{
 };
 use pool_data::{extract_pool_data, PoolData};
 use redis::{aio::ConnectionManager, Client};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use supply::{get_circulating_supply, get_total_supply};
 use token::{get_reputation, get_slug, get_socials, is_spam, TokenScore};
 use token_metadata::{get_token_metadata, MetadataError};
 use tokens::Tokens;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::RwLock;
 use tokio::{
     fs::{self, OpenOptions},
     io::AsyncWriteExt,
@@ -62,7 +61,7 @@ pub fn get_reqwest_client() -> &'static reqwest::Client {
 }
 
 const SPAM_TOKENS_FILE: &str = "spam_tokens.txt";
-const MAX_REDIS_EVENT_BUFFER_SIZE: usize = 100_000;
+const MAX_REDIS_EVENT_BUFFER_SIZE: usize = 1_000;
 
 #[derive(Debug, Deserialize)]
 struct JsonSerializedPrices {
@@ -120,230 +119,15 @@ async fn main() -> anyhow::Result<()> {
     log::info!("Metadata updated");
     let tokens = Arc::new(RwLock::new(tokens));
 
-    let tokens_clone = Arc::clone(&tokens);
-
     let json_serialized = Arc::new(RwLock::new(None));
-
     let cancellation_token = CancellationToken::new();
+
     let mut join_handles = Vec::new();
 
     join_handles.push(tokio::spawn(launch_http_server(
         Arc::clone(&tokens),
         Arc::clone(&json_serialized),
     )));
-
-    let token_price_stream = Arc::new(RedisEventStream::<PriceTokenEventData>::new(
-        create_redis_connection().await,
-        PriceTokenEvent::ID,
-    ));
-    let pool_price_stream = Arc::new(RedisEventStream::<PricePoolEventData>::new(
-        create_redis_connection().await,
-        PricePoolEvent::ID,
-    ));
-    let time_provider = Arc::new(SharedSynchronousEventSender::new(Arc::clone(
-        &token_price_stream,
-    )));
-
-    let cancellation_token_clone = cancellation_token.clone();
-    let token_event_sender = Arc::clone(&time_provider);
-    let mut interval = tokio::time::interval(Duration::from_secs(5));
-    let time_provider_clone = Arc::clone(&token_event_sender);
-    join_handles.push(tokio::spawn(async move {
-        loop {
-            if cancellation_token_clone.is_cancelled() {
-                break;
-            }
-            tokens_clone.write().await.recalculate_prices();
-            for (token_id, token) in tokens_clone.write().await.tokens.iter_mut() {
-                if token.deleted {
-                    continue;
-                }
-                match get_total_supply(token_id).await {
-                    Ok(total_supply) => token.total_supply = total_supply,
-                    Err(e) => {
-                        if token.reputation >= TokenScore::NotFake {
-                            log::warn!("Failed to get total supply for {token_id}: {e:?}")
-                        }
-                    }
-                }
-                match get_circulating_supply(token_id, false).await {
-                    Ok(circulating_supply) => token.circulating_supply = circulating_supply,
-                    Err(e) => {
-                        if token.reputation >= TokenScore::NotFake {
-                            log::warn!("Failed to get circulating supply for {token_id}: {e:?}")
-                        }
-                    }
-                }
-                match get_circulating_supply(token_id, true).await {
-                    Ok(circulating_supply_excluding_team) => {
-                        token.circulating_supply_excluding_team = circulating_supply_excluding_team
-                    }
-                    Err(e) => {
-                        if token.reputation >= TokenScore::NotFake {
-                            log::warn!(
-                                "Failed to get circulating supply excluding team for {token_id}: {e:?}"
-                            )
-                        }
-                    }
-                }
-            }
-
-
-            let mut spam_pending = Vec::new();
-            let mut token_metadatas = HashMap::new();
-            for (token_id, token) in tokens_clone.read().await.tokens.iter() {
-                if token.deleted {
-                    continue;
-                }
-                if let Ok(token_metadata) = get_token_metadata(token_id.clone()).await {
-                    let meta_stringified = format!(
-                        "Symbol: {}\nName: {}\n",
-                        token_metadata.symbol.replace('\n', " "),
-                        token_metadata.name.replace('\n', " ")
-                    );
-                    token_metadatas.insert(token_id.clone(), token_metadata);
-                    if token.reputation == TokenScore::Unknown {
-                        match is_spam(&meta_stringified).await {
-                            Ok(true) => {
-                                spam_pending.push(token_id.clone());
-                            },
-                            Ok(false) => {}
-                            Err(e) => log::warn!("Failed to check spam for {token_id}: {e:?}\nDetails:\n{meta_stringified}"),
-                        }
-                    }
-                }
-            }
-
-            let tokens = tokens_clone.read().await;
-            let (
-                prices_only,
-                ref_compatibility_format,
-                super_precise,
-                prices_only_with_hardcoded,
-                ref_compatibility_format_with_hardcoded,
-                super_precise_with_hardcoded,
-            ) = time_provider_clone.with_time(|event_time| {
-                let mut prices_only = HashMap::new();
-                let mut ref_compatibility_format = HashMap::new();
-                let mut super_precise = HashMap::new();
-
-                let mut prices_only_with_hardcoded = HashMap::new();
-                let mut ref_compatibility_format_with_hardcoded = HashMap::new();
-                let mut super_precise_with_hardcoded = HashMap::new();
-
-                let mut pending_events = Vec::new();
-                for (token_id, token) in tokens.tokens.iter() {
-                    if token.deleted {
-                        continue;
-                    }
-                    if let Some(token_metadata) = token_metadatas.get(token_id) {
-                        let price_usd = &token.price_usd;
-                        let price_f64 = f64::from_str(&price_usd.to_string()).unwrap();
-                        let price_ref_scale = price_usd.with_scale(12);
-
-                        prices_only.insert(token_id.clone(), price_f64);
-                        ref_compatibility_format.insert(
-                            token_id.clone(),
-                            serde_json::json!({
-                                "price": price_ref_scale.to_string(),
-                                "symbol": token.metadata.symbol,
-                                "decimal": token_metadata.decimals,
-                            }),
-                        );
-                        super_precise.insert(token_id.clone(), price_usd.to_string());
-
-                        let price_usd_hardcoded = &token.price_usd_hardcoded;
-                        let price_f64_hardcoded =
-                            f64::from_str(&price_usd_hardcoded.to_string()).unwrap();
-                        let price_ref_scale_hardcoded = price_usd_hardcoded.with_scale(12);
-                        prices_only_with_hardcoded.insert(token_id.clone(), price_f64_hardcoded);
-                        ref_compatibility_format_with_hardcoded.insert(
-                            token_id.clone(),
-                            serde_json::json!({
-                                "price": price_ref_scale_hardcoded.to_string(),
-                                "symbol": token.metadata.symbol,
-                                "decimal": token_metadata.decimals,
-                            }),
-                        );
-                        super_precise_with_hardcoded
-                            .insert(token_id.clone(), price_usd_hardcoded.to_string());
-
-                            pending_events.push(PriceTokenEventData {
-                                    token: token_id.clone(),
-                                    price_usd: token.price_usd_raw.clone(),
-                                    timestamp_nanosec: event_time,
-                                });
-                    }
-                }
-
-                (pending_events, (
-                    prices_only,
-                    ref_compatibility_format,
-                    super_precise,
-                    prices_only_with_hardcoded,
-                    ref_compatibility_format_with_hardcoded,
-                    super_precise_with_hardcoded,
-                ))
-            }).await;
-            let full_data = serde_json::to_string(&tokens.tokens).unwrap();
-            drop(tokens);
-            let ref_compatibility_format = ref_compatibility_format
-                .into_iter()
-                .sorted_by_key(|(token_id, _)| token_id.to_string())
-                .collect::<BTreeMap<_, _>>();
-            *json_serialized.write().await = Some(JsonSerializedPrices {
-                prices_only: serde_json::to_string(&prices_only).unwrap(),
-                ref_compatibility_format: serde_json::to_string(&ref_compatibility_format).unwrap(),
-                super_precise: serde_json::to_string(&super_precise).unwrap(),
-
-                prices_only_with_hardcoded: serde_json::to_string(&prices_only_with_hardcoded)
-                    .unwrap(),
-                ref_compatibility_format_with_hardcoded: serde_json::to_string(
-                    &ref_compatibility_format_with_hardcoded,
-                )
-                .unwrap(),
-                super_precise_with_hardcoded: serde_json::to_string(&super_precise_with_hardcoded)
-                    .unwrap(),
-
-                full_data,
-            });
-            log::info!("Updated all prices");
-
-            if !spam_pending.is_empty() {
-                let mut file = OpenOptions::new()
-                    .create(true)
-                    .write(true)
-                    .append(true)
-                    .open(SPAM_TOKENS_FILE)
-                    .await
-                    .expect("Failed to open spam tokens file");
-                let existing_spam_list = tokens_clone.read().await.spam_tokens.clone();
-                for token in spam_pending.iter() {
-                    if !existing_spam_list.contains(token) {
-                        file.write_all(format!("{token} // added by AI\n").as_bytes())
-                            .await
-                            .expect("Failed to write spam token");
-                    }
-                }
-                file.flush()
-                    .await
-                    .expect("Failed to flush spam tokens file");
-                drop(file);
-                if !spam_pending.is_empty() {
-                    let mut tokens = tokens_clone.write().await;
-                    for token in spam_pending.iter() {
-                        if let Some(token) = tokens.tokens.get_mut(token) {
-                            token.reputation = TokenScore::Spam;
-                        }
-                    }
-                    tokens.spam_tokens.extend(spam_pending);
-                }
-            }
-
-            save_tokens(&*tokens_clone.read().await).await;
-            interval.tick().await;
-        }
-    }));
 
     let tokens_clone = Arc::clone(&tokens);
     let cancellation_token_clone = cancellation_token.clone();
@@ -369,26 +153,230 @@ async fn main() -> anyhow::Result<()> {
     }));
 
     let cancellation_token_clone = cancellation_token.clone();
-    let pool_price_stream_clone = Arc::clone(&pool_price_stream);
+    let mut i = 0;
+    let json_serialized_clone = Arc::clone(&json_serialized);
     join_handles.push(tokio::spawn(async move {
-        let token_event_sender_clone = &token_event_sender;
         RedisEventStream::<TradePoolChangeEventData>::new(
             create_redis_connection().await,
             TradePoolChangeEvent::ID,
         )
-        .start_reading_events(
+        .start_reading_event_vecs(
             "pair_price_extractor",
-            move |event| {
+            move |events| {
+                i += 1;
                 let tokens = Arc::clone(&tokens);
-                let pool_price_stream = Arc::clone(&pool_price_stream_clone);
+                let json_serialized = Arc::clone(&json_serialized_clone);
                 async move {
-                    if let Some(pool_data) = extract_pool_data(&event.pool) {
-                        process_pool(&event, &pool_data, &pool_price_stream).await;
-                        process_token(&event, &pool_data, &tokens, token_event_sender_clone).await;
-                    } else {
-                        log::warn!("Ratios can't be extracted from pool {}", event.pool_id);
+                    let mut token_price_stream = RedisEventStream::<PriceTokenEventData>::new(
+                        create_redis_connection().await,
+                        PriceTokenEvent::ID,
+                    );
+                    let mut pool_price_stream = RedisEventStream::<PricePoolEventData>::new(
+                        create_redis_connection().await,
+                        PricePoolEvent::ID,
+                    );
+                    let Some(last_event) = events.last() else {
+                        return Ok(());
+                    };
+                    for event in events.iter() {
+                        if let Some(pool_data) = extract_pool_data(&event.pool) {
+                            process_pool(event, &pool_data, &mut pool_price_stream).await;
+                            process_token(event, &pool_data, &tokens, &mut token_price_stream)
+                                .await;
+                        } else {
+                            log::warn!("Ratios can't be extracted from pool {}", event.pool_id);
+                        }
                     }
-                    Ok::<(), Infallible>(())
+
+                    token_price_stream
+                        .flush_events(last_event.block_height, MAX_REDIS_EVENT_BUFFER_SIZE)
+                        .await?;
+                    pool_price_stream
+                        .flush_events(last_event.block_height, MAX_REDIS_EVENT_BUFFER_SIZE)
+                        .await?;
+
+                    // TODO dynamic interval based on volume
+                    if i % 30 != 0 {
+                        return Ok(());
+                    }
+
+                    let mut tokens = tokens.write().await;
+                    tokens.recalculate_prices();
+                    for (token_id, token) in tokens.tokens.iter_mut() {
+                        if token.deleted {
+                            continue;
+                        }
+                        match get_total_supply(token_id).await {
+                            Ok(total_supply) => token.total_supply = total_supply,
+                            Err(e) => {
+                                if token.reputation >= TokenScore::NotFake {
+                                    log::warn!("Failed to get total supply for {token_id}: {e:?}")
+                                }
+                            }
+                        }
+                        match get_circulating_supply(token_id, false).await {
+                            Ok(circulating_supply) => token.circulating_supply = circulating_supply,
+                            Err(e) => {
+                                if token.reputation >= TokenScore::NotFake {
+                                    log::warn!("Failed to get circulating supply for {token_id}: {e:?}")
+                                }
+                            }
+                        }
+                        match get_circulating_supply(token_id, true).await {
+                            Ok(circulating_supply_excluding_team) => {
+                                token.circulating_supply_excluding_team = circulating_supply_excluding_team
+                            }
+                            Err(e) => {
+                                if token.reputation >= TokenScore::NotFake {
+                                    log::warn!(
+                                        "Failed to get circulating supply excluding team for {token_id}: {e:?}"
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+
+                    let mut spam_pending = Vec::new();
+                    let mut token_metadatas = HashMap::new();
+                    for (token_id, token) in tokens.tokens.iter() {
+                        if token.deleted {
+                            continue;
+                        }
+                        if let Ok(token_metadata) = get_token_metadata(token_id.clone()).await {
+                            let meta_stringified = format!(
+                                "Symbol: {}\nName: {}\n",
+                                token_metadata.symbol.replace('\n', " "),
+                                token_metadata.name.replace('\n', " ")
+                            );
+                            token_metadatas.insert(token_id.clone(), token_metadata);
+                            if token.reputation == TokenScore::Unknown {
+                                match is_spam(&meta_stringified).await {
+                                    Ok(true) => {
+                                        spam_pending.push(token_id.clone());
+                                    },
+                                    Ok(false) => {}
+                                    Err(e) => log::warn!("Failed to check spam for {token_id}: {e:?}\nDetails:\n{meta_stringified}"),
+                                }
+                            }
+                        }
+                    }
+
+                    let mut prices_only = HashMap::new();
+                    let mut ref_compatibility_format = HashMap::new();
+                    let mut super_precise = HashMap::new();
+
+                    let mut prices_only_with_hardcoded = HashMap::new();
+                    let mut ref_compatibility_format_with_hardcoded = HashMap::new();
+                    let mut super_precise_with_hardcoded = HashMap::new();
+
+                    for (token_id, token) in tokens.tokens.iter() {
+                        if token.deleted {
+                            continue;
+                        }
+                        if let Some(token_metadata) = token_metadatas.get(token_id) {
+                            let price_usd = &token.price_usd;
+                            let price_f64 = f64::from_str(&price_usd.to_string()).unwrap();
+                            let price_ref_scale = price_usd.with_scale(12);
+
+                            prices_only.insert(token_id.clone(), price_f64);
+                            ref_compatibility_format.insert(
+                                token_id.clone(),
+                                serde_json::json!({
+                                    "price": price_ref_scale.to_string(),
+                                    "symbol": token.metadata.symbol,
+                                    "decimal": token_metadata.decimals,
+                                }),
+                            );
+                            super_precise.insert(token_id.clone(), price_usd.to_string());
+
+                            let price_usd_hardcoded = &token.price_usd_hardcoded;
+                            let price_f64_hardcoded =
+                                f64::from_str(&price_usd_hardcoded.to_string()).unwrap();
+                            let price_ref_scale_hardcoded = price_usd_hardcoded.with_scale(12);
+                            prices_only_with_hardcoded.insert(token_id.clone(), price_f64_hardcoded);
+                            ref_compatibility_format_with_hardcoded.insert(
+                                token_id.clone(),
+                                serde_json::json!({
+                                    "price": price_ref_scale_hardcoded.to_string(),
+                                    "symbol": token.metadata.symbol,
+                                    "decimal": token_metadata.decimals,
+                                }),
+                            );
+                            super_precise_with_hardcoded
+                                .insert(token_id.clone(), price_usd_hardcoded.to_string());
+
+                                token_price_stream.add_event(PriceTokenEventData {
+                                    token: token_id.clone(),
+                                    price_usd: token.price_usd_raw.clone(),
+                                    timestamp_nanosec: SystemTime::now()
+                                        .duration_since(SystemTime::UNIX_EPOCH)
+                                        .unwrap()
+                                        .as_nanos(),
+                                });
+                        }
+                    }
+
+                    token_price_stream
+                        .flush_events("not-synchronized", MAX_REDIS_EVENT_BUFFER_SIZE)
+                        .await?;
+
+                    let full_data = serde_json::to_string(&tokens.tokens).unwrap();
+                    let ref_compatibility_format = ref_compatibility_format
+                        .into_iter()
+                        .sorted_by_key(|(token_id, _)| token_id.to_string())
+                        .collect::<BTreeMap<_, _>>();
+                    *json_serialized.write().await = Some(JsonSerializedPrices {
+                        prices_only: serde_json::to_string(&prices_only).unwrap(),
+                        ref_compatibility_format: serde_json::to_string(&ref_compatibility_format).unwrap(),
+                        super_precise: serde_json::to_string(&super_precise).unwrap(),
+
+                        prices_only_with_hardcoded: serde_json::to_string(&prices_only_with_hardcoded)
+                            .unwrap(),
+                        ref_compatibility_format_with_hardcoded: serde_json::to_string(
+                            &ref_compatibility_format_with_hardcoded,
+                        )
+                        .unwrap(),
+                        super_precise_with_hardcoded: serde_json::to_string(&super_precise_with_hardcoded)
+                            .unwrap(),
+
+                        full_data,
+                    });
+                    log::info!("Updated all prices");
+
+                    if !spam_pending.is_empty() {
+                        let mut file = OpenOptions::new()
+                            .create(true)
+                            .write(true)
+                            .append(true)
+                            .open(SPAM_TOKENS_FILE)
+                            .await
+                            .expect("Failed to open spam tokens file");
+                        let existing_spam_list = tokens.spam_tokens.clone();
+                        for token in spam_pending.iter() {
+                            if !existing_spam_list.contains(token) {
+                                file.write_all(format!("{token} // added by AI\n").as_bytes())
+                                    .await
+                                    .expect("Failed to write spam token");
+                            }
+                        }
+                        file.flush()
+                            .await
+                            .expect("Failed to flush spam tokens file");
+                        drop(file);
+                        if !spam_pending.is_empty() {
+                            for token in spam_pending.iter() {
+                                if let Some(token) = tokens.tokens.get_mut(token) {
+                                    token.reputation = TokenScore::Spam;
+                                }
+                            }
+                            tokens.spam_tokens.extend(spam_pending);
+                        }
+                    }
+
+                    save_tokens(&tokens).await;
+
+                    Ok::<(), anyhow::Error>(())
                 }
             },
             || cancellation_token_clone.is_cancelled(),
@@ -406,16 +394,6 @@ async fn main() -> anyhow::Result<()> {
         log::info!("Stopping task {}", i + 1);
         join_handle.await?;
     }
-    log::info!("Sending all remaining token events");
-    Arc::try_unwrap(token_price_stream)
-        .map_err(|_| anyhow::anyhow!("Failed to unwrap token price stream"))?
-        .stop()
-        .await;
-    log::info!("Sending all remaining pool events");
-    Arc::try_unwrap(pool_price_stream)
-        .map_err(|_| anyhow::anyhow!("Failed to unwrap pool price stream"))?
-        .stop()
-        .await;
     log::info!("Exiting");
 
     Ok(())
@@ -456,7 +434,7 @@ async fn save_tokens(tokens: &Tokens) {
 async fn process_pool(
     event: &TradePoolChangeEventData,
     pool_data: &PoolData,
-    pool_price_stream: &RedisEventStream<PricePoolEventData>,
+    pool_price_stream: &mut RedisEventStream<PricePoolEventData>,
 ) {
     let pool_price_event = PricePoolEventData {
         pool_id: event.pool_id.clone(),
@@ -466,23 +444,14 @@ async fn process_pool(
         token1_in_1_token0: pool_data.ratios.1.clone(),
         timestamp_nanosec: event.block_timestamp_nanosec,
     };
-    if let Err(err) = pool_price_stream
-        .emit_event(
-            event.block_timestamp_nanosec,
-            pool_price_event,
-            MAX_REDIS_EVENT_BUFFER_SIZE,
-        )
-        .await
-    {
-        log::error!("Failed to emit price pool event: {err:?}");
-    }
+    pool_price_stream.add_event(pool_price_event);
 }
 
 async fn process_token(
     event: &TradePoolChangeEventData,
     pool_data: &PoolData,
     tokens: &Arc<RwLock<Tokens>>,
-    token_event_sender: &Arc<SharedSynchronousEventSender<PriceTokenEventData>>,
+    token_price_stream: &mut RedisEventStream<PriceTokenEventData>,
 ) {
     tokens
         .write()
@@ -491,23 +460,19 @@ async fn process_token(
         .await;
 
     let token_read = tokens.read().await;
-    token_event_sender
-        .with_time(|event_time| {
-            let mut events = Vec::new();
-            for token_id in [&pool_data.tokens.0, &pool_data.tokens.1] {
-                if let Some(token) = token_read.tokens.get(token_id) {
-                    let token_price_event = PriceTokenEventData {
-                        token: token_id.clone(),
-                        price_usd: token.price_usd_raw.clone(),
-                        timestamp_nanosec: event_time,
-                    };
-                    events.push(token_price_event);
-                }
-            }
-            drop(token_read);
-            (events, ())
-        })
-        .await;
+    for token_id in [&pool_data.tokens.0, &pool_data.tokens.1] {
+        if let Some(token) = token_read.tokens.get(token_id) {
+            let token_price_event = PriceTokenEventData {
+                token: token_id.clone(),
+                price_usd: token.price_usd_raw.clone(),
+                timestamp_nanosec: SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos(),
+            };
+            token_price_stream.add_event(token_price_event);
+        }
+    }
 }
 
 async fn create_redis_connection() -> ConnectionManager {
@@ -517,47 +482,4 @@ async fn create_redis_connection() -> ConnectionManager {
     )
     .await
     .expect("Failed to create Redis connection")
-}
-
-/// This lock is used to enforce strict order of event timestamps. Even though the "every 5s for all tokens"
-/// loop doesn't have a block height, some ordering needs to exist in Redis and database because API clients use
-/// it for pagination and filtering. While this mutex is locked, the block can't be updated by pool change events.
-struct SharedSynchronousEventSender<
-    Event: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
->(Mutex<(Instant, u128)>, Arc<RedisEventStream<Event>>);
-
-impl<Event: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static + Debug>
-    SharedSynchronousEventSender<Event>
-{
-    fn new(event_stream: Arc<RedisEventStream<Event>>) -> Self {
-        Self(
-            Mutex::new((
-                Instant::now(),
-                SystemTime::now()
-                    .duration_since(SystemTime::UNIX_EPOCH)
-                    .unwrap()
-                    .as_nanos(),
-            )),
-            event_stream,
-        )
-    }
-
-    async fn with_time<T>(&self, f: impl FnOnce(u128) -> (Vec<Event>, T)) -> T {
-        let lock = self.0.lock().await;
-        let (starting_instant, starting_nanos) = *lock;
-        let now_instant = Instant::now();
-        let nanos_since_new = now_instant.duration_since(starting_instant).as_nanos();
-        let nanos = starting_nanos + nanos_since_new;
-        let (events, data) = f(nanos);
-        for event in events {
-            if let Err(err) = self
-                .1
-                .emit_event(nanos, event, MAX_REDIS_EVENT_BUFFER_SIZE)
-                .await
-            {
-                log::error!("Failed to emit event at {nanos}: {err:?}");
-            }
-        }
-        data
-    }
 }
