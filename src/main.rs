@@ -318,7 +318,7 @@ async fn main() -> anyhow::Result<()> {
                     }
 
                     token_price_stream
-                        .flush_events("not-synchronized", MAX_REDIS_EVENT_BUFFER_SIZE)
+                        .flush_events(last_event.block_height, MAX_REDIS_EVENT_BUFFER_SIZE)
                         .await?;
 
                     let full_data = serde_json::to_string(&tokens.tokens).unwrap();
