@@ -22,12 +22,8 @@ use std::{
 use http_server::launch_http_server;
 use inevents_redis::RedisEventStream;
 use intear_events::events::{
-    newcontract::nep141::{NewContractNep141Event, NewContractNep141EventData},
-    price::{
-        price_pool::{PricePoolEvent, PricePoolEventData},
-        price_token::{PriceTokenEvent, PriceTokenEventData},
-    },
-    trade::trade_pool_change::{TradePoolChangeEvent, TradePoolChangeEventData},
+    newcontract::nep141::NewContractNep141Event, price::price_token::PriceTokenEvent,
+    trade::trade_pool_change::TradePoolChangeEvent,
 };
 use itertools::Itertools;
 use lazy_static::lazy_static;
@@ -132,7 +128,7 @@ async fn main() -> anyhow::Result<()> {
     let tokens_clone = Arc::clone(&tokens);
     let cancellation_token_clone = cancellation_token.clone();
     join_handles.push(tokio::spawn(async move {
-        RedisEventStream::<NewContractNep141EventData>::new(
+        RedisEventStream::<NewContractNep141Event>::new(
             create_redis_connection().await,
             NewContractNep141Event::ID,
         )
@@ -156,7 +152,7 @@ async fn main() -> anyhow::Result<()> {
     let mut i = 0;
     let json_serialized_clone = Arc::clone(&json_serialized);
     join_handles.push(tokio::spawn(async move {
-        RedisEventStream::<TradePoolChangeEventData>::new(
+        RedisEventStream::<TradePoolChangeEvent>::new(
             create_redis_connection().await,
             TradePoolChangeEvent::ID,
         )
@@ -167,20 +163,15 @@ async fn main() -> anyhow::Result<()> {
                 let tokens = Arc::clone(&tokens);
                 let json_serialized = Arc::clone(&json_serialized_clone);
                 async move {
-                    let mut token_price_stream = RedisEventStream::<PriceTokenEventData>::new(
+                    let mut token_price_stream = RedisEventStream::<PriceTokenEvent>::new(
                         create_redis_connection().await,
                         PriceTokenEvent::ID,
-                    );
-                    let mut pool_price_stream = RedisEventStream::<PricePoolEventData>::new(
-                        create_redis_connection().await,
-                        PricePoolEvent::ID,
                     );
                     let Some(last_event) = events.last() else {
                         return Ok(());
                     };
                     for event in events.iter() {
                         if let Some(pool_data) = extract_pool_data(&event.pool) {
-                            process_pool(event, &pool_data, &mut pool_price_stream).await;
                             process_token(event, &pool_data, &tokens, &mut token_price_stream)
                                 .await;
                         } else {
@@ -189,9 +180,6 @@ async fn main() -> anyhow::Result<()> {
                     }
 
                     token_price_stream
-                        .flush_events(last_event.block_height, MAX_REDIS_EVENT_BUFFER_SIZE)
-                        .await?;
-                    pool_price_stream
                         .flush_events(last_event.block_height, MAX_REDIS_EVENT_BUFFER_SIZE)
                         .await?;
 
@@ -306,7 +294,7 @@ async fn main() -> anyhow::Result<()> {
                             super_precise_with_hardcoded
                                 .insert(token_id.clone(), price_usd_hardcoded.to_string());
 
-                                token_price_stream.add_event(PriceTokenEventData {
+                                token_price_stream.add_event(PriceTokenEvent {
                                     token: token_id.clone(),
                                     price_usd: token.price_usd_raw.clone(),
                                     timestamp_nanosec: SystemTime::now()
@@ -431,27 +419,11 @@ async fn save_tokens(tokens: &Tokens) {
         .expect("Failed to save tokens");
 }
 
-async fn process_pool(
-    event: &TradePoolChangeEventData,
-    pool_data: &PoolData,
-    pool_price_stream: &mut RedisEventStream<PricePoolEventData>,
-) {
-    let pool_price_event = PricePoolEventData {
-        pool_id: event.pool_id.clone(),
-        token0: pool_data.tokens.0.clone(),
-        token1: pool_data.tokens.1.clone(),
-        token0_in_1_token1: pool_data.ratios.0.clone(),
-        token1_in_1_token0: pool_data.ratios.1.clone(),
-        timestamp_nanosec: event.block_timestamp_nanosec,
-    };
-    pool_price_stream.add_event(pool_price_event);
-}
-
 async fn process_token(
-    event: &TradePoolChangeEventData,
+    event: &TradePoolChangeEvent,
     pool_data: &PoolData,
     tokens: &Arc<RwLock<Tokens>>,
-    token_price_stream: &mut RedisEventStream<PriceTokenEventData>,
+    token_price_stream: &mut RedisEventStream<PriceTokenEvent>,
 ) {
     tokens
         .write()
@@ -462,7 +434,7 @@ async fn process_token(
     let token_read = tokens.read().await;
     for token_id in [&pool_data.tokens.0, &pool_data.tokens.1] {
         if let Some(token) = token_read.tokens.get(token_id) {
-            let token_price_event = PriceTokenEventData {
+            let token_price_event = PriceTokenEvent {
                 token: token_id.clone(),
                 price_usd: token.price_usd_raw.clone(),
                 timestamp_nanosec: SystemTime::now()
