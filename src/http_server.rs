@@ -164,7 +164,8 @@ pub async fn launch_http_server(
                                 &query.query.to_lowercase(),
                                 query.take,
                                 query.reputation,
-                                query.account_id.clone()
+                                query.account_id.clone(),
+                                query.platform.clone(),
                             ).await;
                             HttpResponse::Ok()
                                 .insert_header(("Cache-Control", "public, max-age=3600"))
@@ -351,6 +352,8 @@ struct TokenSearch {
     reputation: TokenScore,
     #[serde(rename = "acc", default)]
     account_id: Option<AccountId>,
+    #[serde(default)]
+    platform: Option<AccountId>,
 }
 
 fn default_search_take() -> usize {

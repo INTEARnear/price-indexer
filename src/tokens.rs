@@ -265,6 +265,7 @@ impl Tokens {
         take: usize,
         min_reputation: TokenScore,
         account_id: Option<AccountId>,
+        parent: Option<AccountId>,
     ) -> Vec<&Token> {
         let owned_tokens = if let Some(account_id) = account_id {
             get_owned_tokens(account_id).await
@@ -274,6 +275,13 @@ impl Tokens {
         self.tokens
             .values()
             .filter(|token| token.reputation >= min_reputation)
+            .filter(|token| {
+                if let Some(parent) = parent.as_ref() {
+                    token.account_id.as_str().ends_with(&format!(".{parent}"))
+                } else {
+                    true
+                }
+            })
             .map(|token| {
                 (
                     token,
