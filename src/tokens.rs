@@ -5,11 +5,13 @@ use std::{
     time::{Duration, Instant},
 };
 
-use cached::proc_macro::cached;
+use cached::proc_macro::{cached, io_cached};
 use inindexer::near_indexer_primitives::types::{AccountId, Balance, BlockHeight};
 use inindexer::near_utils::dec_format;
 use intear_events::events::trade::trade_pool_change::PoolType;
 use itertools::Itertools;
+use num_traits::ToPrimitive;
+use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use sqlx::types::BigDecimal;
 
@@ -106,8 +108,9 @@ impl Tokens {
         }
     }
 
-    pub fn recalculate_token(&self, token_id: &AccountId) -> Option<String> {
+    pub fn recalculate_token(&self, token_id: &AccountId) -> (Option<String>, BigDecimal) {
         let mut max_liquidity = 0.into();
+        let mut total_liquidity = 0.into();
         let mut max_pool = None;
         for (pool_id, (_pool, pool_data)) in &self.pools {
             if pool_data.tokens.0 == *token_id {
@@ -116,24 +119,26 @@ impl Tokens {
                     && (self.routes_to_usd.contains_key(&pool_data.tokens.1)
                         || pool_data.tokens.1 == USD_TOKEN)
                 {
-                    max_liquidity = liquidity;
+                    max_liquidity = liquidity.clone();
                     max_pool = Some(pool_id.clone());
                 }
+                total_liquidity += liquidity;
             } else if pool_data.tokens.1 == *token_id
                 && (self.routes_to_usd.contains_key(&pool_data.tokens.0)
                     || pool_data.tokens.0 == USD_TOKEN)
             {
                 let liquidity = pool_data.liquidity.1.clone();
                 if liquidity > max_liquidity {
-                    max_liquidity = liquidity;
+                    max_liquidity = liquidity.clone();
                     max_pool = Some(pool_id.clone());
                 }
+                total_liquidity += liquidity;
             }
         }
         if max_pool.is_none() && !KNOWN_TOKENS_WITH_NO_POOL.contains(&token_id.as_str()) {
             log::warn!("Can't calculate main pool for {token_id}");
         }
-        max_pool
+        (max_pool, total_liquidity)
     }
 
     pub async fn add_token(&mut self, token_id: &AccountId) -> bool {
@@ -157,7 +162,6 @@ impl Tokens {
                         price_usd: BigDecimal::from(0),
                         price_usd_hardcoded: BigDecimal::from(0),
                         main_pool: None,
-                        metadata,
                         total_supply: get_total_supply(token_id).await.unwrap_or_default(),
                         circulating_supply: get_circulating_supply(token_id, false)
                             .await
@@ -169,6 +173,16 @@ impl Tokens {
                         socials: Default::default(),
                         slug: Default::default(),
                         deleted: false,
+                        reference: if let Some(reference) = metadata.reference.clone() {
+                            get_reference(reference).await.unwrap_or_default()
+                        } else {
+                            Default::default()
+                        },
+                        metadata,
+                        liquidity_usd: 0.0,
+                        volume_usd_1h: 0.0,
+                        volume_usd_24h: 0.0,
+                        volume_usd_7d: 0.0,
                     },
                 );
                 true
@@ -186,7 +200,8 @@ impl Tokens {
         let tokens = [data.tokens.0.clone(), data.tokens.1.clone()];
         self.pools.insert(pool_id.to_string(), (pool, data));
         for token_id in tokens {
-            if let Some(pool) = self.recalculate_token(&token_id) {
+            let (main_pool, token_liquidity) = self.recalculate_token(&token_id);
+            if let Some(pool) = main_pool {
                 let token = if let Some(token) = self.tokens.get_mut(&token_id) {
                     token
                 } else if self.add_token(&token_id).await {
@@ -203,6 +218,11 @@ impl Tokens {
                     / BigDecimal::from_str(&(10u128.pow(USD_DECIMALS)).to_string()).unwrap();
                 token.price_usd_hardcoded = get_hardcoded_price_usd(&token_id, &token.price_usd);
                 token.main_pool = Some(pool);
+                token.liquidity_usd =
+                    ToPrimitive::to_f64(&(token_liquidity * token.price_usd_raw.clone()))
+                        .unwrap_or_default()
+                        / 10f64.powi(USD_DECIMALS as i32)
+                        * 2f64;
             } else if let Some(token) = self.tokens.get_mut(&token_id) {
                 token.main_pool = None;
             } else if let Ok(metadata) = get_token_metadata(token_id.clone()).await {
@@ -214,7 +234,6 @@ impl Tokens {
                         price_usd: BigDecimal::from(0),
                         price_usd_hardcoded: BigDecimal::from(0),
                         main_pool: None,
-                        metadata,
                         total_supply: get_total_supply(&token_id).await.unwrap_or_default(),
                         circulating_supply: get_circulating_supply(&token_id, false)
                             .await
@@ -226,6 +245,16 @@ impl Tokens {
                         socials: Default::default(),
                         slug: Default::default(),
                         deleted: false,
+                        reference: if let Some(reference) = metadata.reference.clone() {
+                            get_reference(reference).await.unwrap_or_default()
+                        } else {
+                            Default::default()
+                        },
+                        metadata,
+                        liquidity_usd: 0.0,
+                        volume_usd_1h: 0.0,
+                        volume_usd_24h: 0.0,
+                        volume_usd_7d: 0.0,
                     },
                 );
             } else {
@@ -337,5 +366,71 @@ async fn get_owned_tokens(account_id: AccountId) -> HashMap<AccountId, u128> {
             log::warn!("Failed to get FTs owned by {account_id}: {e:?}");
             HashMap::new()
         }
+    }
+}
+
+#[io_cached(time = 3600, disk = true, map_error = "|e| anyhow::anyhow!(e)")]
+async fn get_reference(reference: String) -> Result<serde_json::Value, anyhow::Error> {
+    if let Ok(url) = Url::parse(&reference) {
+        if let Ok(response) = get_reqwest_client().get(url).send().await {
+            let mut value = response.json::<serde_json::Value>().await?;
+            strip_long_strings(&mut value);
+            Ok(value)
+        } else {
+            anyhow::bail!("Failed to get reference from {reference}");
+        }
+    } else {
+        let reference = reference.trim_start_matches("/ipfs/");
+        if reference.len() == 0 {
+            return Ok(Default::default());
+        }
+        if let Ok(response) = get_reqwest_client()
+            .get(&format!("https://ipfs.io/ipfs/{reference}"))
+            .send()
+            .await
+        {
+            let mut value = response.json::<serde_json::Value>().await?;
+            strip_long_strings(&mut value);
+            Ok(value)
+        } else {
+            anyhow::bail!("Failed to get reference from {reference}");
+        }
+    }
+}
+
+const STRING_TOO_LONG_LENGTH: usize = 2000;
+
+fn strip_long_strings(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(object) => {
+            for value in object.values_mut() {
+                strip_long_strings(value);
+            }
+
+            if serde_json::to_string(value).unwrap().len() > STRING_TOO_LONG_LENGTH {
+                *value = serde_json::Value::String(
+                    "<object too long to be included in prices.intear.tech>".to_string(),
+                );
+            }
+        }
+        serde_json::Value::Array(array) => {
+            for value in array {
+                strip_long_strings(value);
+            }
+
+            if serde_json::to_string(value).unwrap().len() > STRING_TOO_LONG_LENGTH {
+                *value = serde_json::Value::String(
+                    "<array too long to be included in prices.intear.tech>".to_string(),
+                );
+            }
+        }
+        serde_json::Value::String(string) => {
+            if string.len() > STRING_TOO_LONG_LENGTH {
+                *value = serde_json::Value::String(
+                    "<string too long to be included in prices.intear.tech>".to_string(),
+                );
+            }
+        }
+        _ => {}
     }
 }

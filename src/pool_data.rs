@@ -42,5 +42,21 @@ pub fn extract_pool_data(pool: &PoolType) -> Option<PoolData> {
             }
             _ => None,
         },
+        PoolType::Aidols(pool) => {
+            let amount0 = BigDecimal::from_str(&pool.wnear_hold.to_string()).ok()?;
+            let amount1 = BigDecimal::from_str(&pool.token_hold.to_string()).ok()?;
+
+            if amount0 == 0.into() || amount1 == 0.into() {
+                return None;
+            }
+            let token0_in_1_token1 = amount0.clone() / amount1.clone();
+            let token1_in_1_token0 = amount1.clone() / amount0.clone();
+
+            Some(PoolData {
+                tokens: ("wrap.near".parse().unwrap(), pool.token_id.clone()),
+                ratios: (token0_in_1_token1, token1_in_1_token0),
+                liquidity: (amount0, amount1),
+            })
+        }
     }
 }

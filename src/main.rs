@@ -19,8 +19,10 @@ use std::{
     sync::Arc,
 };
 
+use cached::proc_macro::cached;
 use http_server::launch_http_server;
 use inevents_redis::RedisEventStream;
+use inindexer::near_indexer_primitives::types::AccountId;
 use intear_events::events::{
     newcontract::nep141::NewContractNep141Event, price::price_token::PriceTokenEvent,
     trade::trade_pool_change::TradePoolChangeEvent,
@@ -194,31 +196,80 @@ async fn main() -> anyhow::Result<()> {
                         if token.deleted {
                             continue;
                         }
-                        match get_total_supply(token_id).await {
+
+                        let token_id = token_id.clone();
+                        let reputation = token.reputation;
+
+                        let (
+                            total_supply_result,
+                            circulating_supply_result,
+                            circulating_supply_excluding_team_result,
+                            volume_1h_result,
+                            volume_24h_result,
+                            volume_7d_result,
+                        ) = tokio::join!(
+                            get_total_supply(&token_id),
+                            get_circulating_supply(&token_id, false),
+                            get_circulating_supply(&token_id, true),
+                            get_volume_1h(token_id.clone()),
+                            get_volume_24h(token_id.clone()),
+                            get_volume_7d(token_id.clone()),
+                        );
+
+                        match total_supply_result {
                             Ok(total_supply) => token.total_supply = total_supply,
                             Err(e) => {
-                                if token.reputation >= TokenScore::NotFake {
+                                if reputation >= TokenScore::NotFake {
                                     log::warn!("Failed to get total supply for {token_id}: {e:?}")
                                 }
                             }
                         }
-                        match get_circulating_supply(token_id, false).await {
+
+                        match circulating_supply_result {
                             Ok(circulating_supply) => token.circulating_supply = circulating_supply,
                             Err(e) => {
-                                if token.reputation >= TokenScore::NotFake {
+                                if reputation >= TokenScore::NotFake {
                                     log::warn!("Failed to get circulating supply for {token_id}: {e:?}")
                                 }
                             }
                         }
-                        match get_circulating_supply(token_id, true).await {
+
+                        match circulating_supply_excluding_team_result {
                             Ok(circulating_supply_excluding_team) => {
                                 token.circulating_supply_excluding_team = circulating_supply_excluding_team
                             }
                             Err(e) => {
-                                if token.reputation >= TokenScore::NotFake {
+                                if reputation >= TokenScore::NotFake {
                                     log::warn!(
                                         "Failed to get circulating supply excluding team for {token_id}: {e:?}"
                                     )
+                                }
+                            }
+                        }
+
+                        match volume_1h_result {
+                            Ok(volume_1h) => token.volume_usd_1h = volume_1h,
+                            Err(e) => {
+                                if reputation >= TokenScore::NotFake {
+                                    log::warn!("Failed to get 1h volume for {token_id}: {e:?}")
+                                }
+                            }
+                        }
+
+                        match volume_24h_result {
+                            Ok(volume_24h) => token.volume_usd_24h = volume_24h,
+                            Err(e) => {
+                                if reputation >= TokenScore::NotFake {
+                                    log::warn!("Failed to get 24h volume for {token_id}: {e:?}")
+                                }
+                            }
+                        }
+
+                        match volume_7d_result {
+                            Ok(volume_7d) => token.volume_usd_7d = volume_7d,
+                            Err(e) => {
+                                if reputation >= TokenScore::NotFake {
+                                    log::warn!("Failed to get 7d volume for {token_id}: {e:?}")
                                 }
                             }
                         }
@@ -454,4 +505,40 @@ async fn create_redis_connection() -> ConnectionManager {
     )
     .await
     .expect("Failed to create Redis connection")
+}
+
+#[cached(time = 300, result = true)]
+async fn get_volume_1h(token_id: AccountId) -> Result<f64, anyhow::Error> {
+    Ok(get_reqwest_client()
+        .get(format!(
+            "https://events-v3.intear.tech/v3/trade_swap/volume_usd_1h?token_id={token_id}"
+        ))
+        .send()
+        .await?
+        .json::<f64>()
+        .await?)
+}
+
+#[cached(time = 300, result = true)]
+async fn get_volume_24h(token_id: AccountId) -> Result<f64, anyhow::Error> {
+    Ok(get_reqwest_client()
+        .get(format!(
+            "https://events-v3.intear.tech/v3/trade_swap/volume_usd_24h?token_id={token_id}"
+        ))
+        .send()
+        .await?
+        .json::<f64>()
+        .await?)
+}
+
+#[cached(time = 3600, result = true)]
+async fn get_volume_7d(token_id: AccountId) -> Result<f64, anyhow::Error> {
+    Ok(get_reqwest_client()
+        .get(format!(
+            "https://events-v3.intear.tech/v3/trade_swap/volume_usd_7d?token_id={token_id}"
+        ))
+        .send()
+        .await?
+        .json::<f64>()
+        .await?)
 }

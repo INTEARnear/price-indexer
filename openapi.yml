@@ -408,6 +408,12 @@ paths:
           schema:
             type: string
           description: The account ID of the user. If the user owns or owned a token, it will be slightly boosted in search
+        - name: platform
+          in: query
+          required: false
+          schema:
+            type: string
+          description: The platform (parent account id) to filter tokens by. If the platform is specified, only tokens from that platform will be returned
       responses:
         '200':
           description: Successful response
@@ -614,6 +620,76 @@ paths:
                   slug: []
                   deleted: false
 
+  /tokens-advanced:
+    get:
+      summary: Get advanced token information with market data
+      description: Retrieves detailed information for all tokens, including prices, metadata, supply information, liquidity, and volume data
+      tags:
+        - Token Information
+      parameters:
+        - name: take
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+            default: 18446744073709551615  # usize::MAX
+          description: Maximum number of tokens to return
+        - name: min_reputation
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [Spam, Unknown, NotFake, Reputable]
+            default: Spam
+          description: Filter tokens by minimum reputation level
+        - name: account_ids
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Comma-separated list of account IDs to filter by
+        - name: platform
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter tokens by platform (parent account id)
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  $ref: '#/components/schemas/TokenDetail'
+              example:
+                "intel.tkn.near":
+                  account_id: "intel.tkn.near"
+                  price_usd_raw: "0.00000000000000000031403698393197025855699805282527104886657659586331948545230257399577125154783353178706988307614885060246835558957366870252978089345781996132921994271391922684056465779502553052217848616272206867258696"
+                  price_usd: "0.00000031403698393197025855699805282527104886657659586331948545230257399577125154783353178706988307614885060246835558957366870252978089345781996132921994271391922684056465779502553052217848616272206867258696000000000000"
+                  price_usd_hardcoded: "0.00000031403698393197025855699805282527104886657659586331948545230257399577125154783353178706988307614885060246835558957366870252978089345781996132921994271391922684056465779502553052217848616272206867258696000000000000"
+                  main_pool: "REF-4663"
+                  metadata:
+                    name: "INTEAR"
+                    symbol: "INTEL"
+                    decimals: 18
+                  total_supply: "100000000000000000000000000000"
+                  circulating_supply: "100000000000000000000000000000"
+                  circulating_supply_excluding_team: "98650377280100000000000000001"
+                  reputation: "Reputable"
+                  socials:
+                    website: "https://intear.tech"
+                    telegram: "https://t.me/intearchat"
+                    twitter: "https://x.com/intelnear"
+                  slug: []
+                  deleted: false
+                  liquidity_usd: 1000000.0
+                  volume_usd_1h: 50000.0
+                  volume_usd_24h: 1200000.0
+                  volume_usd_7d: 8400000.0
+
 components:
   schemas:
     TokenInfo:
@@ -671,6 +747,22 @@ components:
             type: string
         deleted:
           type: boolean
+        liquidity_usd:
+          type: number
+          format: double
+          description: Total liquidity in USD across all pools
+        volume_usd_1h:
+          type: number
+          format: double
+          description: Trading volume in USD over the last hour
+        volume_usd_24h:
+          type: number
+          format: double
+          description: Trading volume in USD over the last 24 hours
+        volume_usd_7d:
+          type: number
+          format: double
+          description: Trading volume in USD over the last 7 days
       required:
         - account_id
         - price_usd_raw
@@ -685,3 +777,7 @@ components:
         - socials
         - slug
         - deleted
+        - liquidity_usd
+        - volume_usd_1h
+        - volume_usd_24h
+        - volume_usd_7d

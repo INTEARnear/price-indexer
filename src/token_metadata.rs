@@ -47,4 +47,5 @@ pub struct TokenMetadataWithoutIcon {
     pub name: String,
     pub symbol: String,
     pub decimals: u32,
+    pub reference: Option<String>,
 }

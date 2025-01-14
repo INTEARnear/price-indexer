@@ -7,7 +7,7 @@ use actix_web::{
     App, HttpResponse, HttpResponseBuilder, HttpServer, Route,
 };
 use inindexer::near_indexer_primitives::types::AccountId;
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use tokio::sync::RwLock;
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -44,6 +44,7 @@ pub async fn launch_http_server(
 
     let server = HttpServer::new(move || {
         let tokens = Arc::clone(&tokens);
+        let tokens2 = Arc::clone(&tokens);
         let json_serialized_all_tokens = Arc::clone(&json_serialized_all_tokens);
 
         App::new()
@@ -152,6 +153,19 @@ pub async fn launch_http_server(
                         } else {
                             HttpResponse::InternalServerError().finish()
                         }
+                    }
+                }))
+                .route("/tokens-advanced", web::get().to(move |query: web::Query<TokensCriteria>| {
+                    let tokens = Arc::clone(&tokens2);
+                    async move {
+                        let tokens = tokens.read().await;
+                        HttpResponse::Ok()
+                                .insert_header(("Cache-Control", "public, max-age=3"))
+                                .json(tokens.tokens.values().filter(|token| {
+                                    token.reputation >= query.min_reputation
+                                    && (query.account_ids.is_empty() || query.account_ids.contains(&token.account_id))
+                                    && query.platform.as_ref().map_or(true, |platform| token.account_id.as_str().ends_with(&format!(".{platform}")))
+                                }).take(query.take).collect::<Vec<_>>())
                     }
                 }))
                 .route("/token-search", web::get().to({
@@ -363,4 +377,33 @@ fn default_search_take() -> usize {
 #[derive(Debug, Deserialize)]
 struct TokenIdWrapper {
     token_id: AccountId,
+}
+
+#[derive(Debug, Deserialize)]
+struct TokensCriteria {
+    #[serde(default = "usize_max")]
+    take: usize,
+    #[serde(default)]
+    min_reputation: TokenScore,
+    #[serde(default, deserialize_with = "deserialize_comma_separated_account_ids")]
+    account_ids: Vec<AccountId>,
+    #[serde(default)]
+    platform: Option<AccountId>,
+}
+
+fn usize_max() -> usize {
+    usize::MAX
+}
+
+fn deserialize_comma_separated_account_ids<'de, D>(
+    deserializer: D,
+) -> Result<Vec<AccountId>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    Ok(s.split(',')
+        .map(|s| s.parse::<AccountId>())
+        .filter_map(|result| result.ok())
+        .collect())
 }

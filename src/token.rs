@@ -81,6 +81,16 @@ pub struct Token {
     pub slug: Vec<String>,
     #[serde(default)]
     pub deleted: bool,
+    #[serde(default)]
+    pub reference: serde_json::Value,
+    #[serde(default)]
+    pub liquidity_usd: f64,
+    #[serde(default)]
+    pub volume_usd_1h: f64,
+    #[serde(default)]
+    pub volume_usd_24h: f64,
+    #[serde(default)]
+    pub volume_usd_7d: f64,
 }
 
 fn default_account_id() -> AccountId {
