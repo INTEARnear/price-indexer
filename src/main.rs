@@ -118,7 +118,8 @@ async fn main() -> anyhow::Result<()> {
     let tokens = Arc::new(RwLock::new(tokens));
 
     log::info!("Updating pools");
-    for (pool_id, (pool, data)) in tokens.read().await.pools.iter() {
+    let pools = tokens.read().await.pools.clone();
+    for (pool_id, (pool, data)) in pools.iter() {
         tokens
             .write()
             .await
