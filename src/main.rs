@@ -147,12 +147,7 @@ async fn main() -> anyhow::Result<()> {
                             if !tokens.write().await.add_token(&token_id, true).await {
                                 tokio::time::sleep(tokio::time::Duration::from_secs(7)).await;
                                 if !tokens.write().await.add_token(&token_id, true).await {
-                                    tokio::time::sleep(tokio::time::Duration::from_secs(50)).await;
-                                    if !tokens.write().await.add_token(&token_id, true).await {
-                                        log::warn!(
-                                            "Failed to add token {token_id} after 60 seconds"
-                                        );
-                                    }
+                                    log::warn!("Failed to add token {token_id} after 10 seconds");
                                 }
                             }
                         }
@@ -190,7 +185,7 @@ async fn main() -> anyhow::Result<()> {
                     };
                     for event in events.iter() {
                         if let Some(pool_data) = extract_pool_data(&event.pool) {
-                            process_token(event, &pool_data, &tokens, &mut token_price_stream)
+                            process_pool_change(event, &pool_data, &tokens, &mut token_price_stream)
                                 .await;
                         } else {
                             log::warn!("Ratios can't be extracted from pool {}", event.pool_id);
@@ -489,7 +484,7 @@ async fn save_tokens(tokens: &Tokens) {
         .expect("Failed to save tokens");
 }
 
-async fn process_token(
+async fn process_pool_change(
     event: &TradePoolChangeEvent,
     pool_data: &PoolData,
     tokens: &Arc<RwLock<Tokens>>,

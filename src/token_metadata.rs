@@ -19,7 +19,7 @@ pub async fn get_token_metadata(
 ) -> Result<TokenMetadataWithoutIcon, MetadataError> {
     let client = JsonRpcClient::connect(RPC_URL);
     let request = methods::query::RpcQueryRequest {
-        block_reference: BlockReference::Finality(Finality::Final),
+        block_reference: BlockReference::Finality(Finality::None),
         request: QueryRequest::CallFunction {
             account_id: token_id,
             method_name: "ft_metadata".into(),
