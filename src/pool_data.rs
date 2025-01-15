@@ -43,6 +43,14 @@ pub fn extract_pool_data(pool: &PoolType) -> Option<PoolData> {
             _ => None,
         },
         PoolType::Aidols(pool) => {
+            if pool.is_deployed {
+                return Some(PoolData {
+                    tokens: ("wrap.near".parse().unwrap(), pool.token_id.clone()),
+                    ratios: (0.into(), 0.into()),
+                    liquidity: (0.into(), 0.into()),
+                });
+            }
+
             let amount0 = BigDecimal::from_str(&pool.wnear_hold.to_string()).ok()?;
             let amount1 = BigDecimal::from_str(&pool.token_hold.to_string()).ok()?;
 

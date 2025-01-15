@@ -141,13 +141,13 @@ impl Tokens {
         (max_pool, total_liquidity)
     }
 
-    pub async fn add_token(&mut self, token_id: &AccountId) -> bool {
+    pub async fn add_token(&mut self, token_id: &AccountId, force: bool) -> bool {
         if self.tokens.contains_key(token_id) {
             return true;
         }
         if let Some(time) = self.last_checked_metadata.get(token_id) {
             // Don't try to get metadata on every NEP-141 event if the metadata is corrupted
-            if time.elapsed() < Duration::from_secs(60) {
+            if time.elapsed() < Duration::from_secs(60) && !force {
                 return false;
             }
         }
@@ -204,7 +204,7 @@ impl Tokens {
             if let Some(pool) = main_pool {
                 let token = if let Some(token) = self.tokens.get_mut(&token_id) {
                     token
-                } else if self.add_token(&token_id).await {
+                } else if self.add_token(&token_id, false).await {
                     self.tokens.get_mut(&token_id).unwrap()
                 } else {
                     continue;

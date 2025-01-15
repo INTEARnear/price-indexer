@@ -141,13 +141,18 @@ async fn main() -> anyhow::Result<()> {
                 async move {
                     tokio::spawn(async move {
                         let token_id = event.account_id;
-                        if !tokens.write().await.add_token(&token_id).await {
+                        if !tokens.write().await.add_token(&token_id, true).await {
                             // Allow RPC to catch up
                             tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
-                            if !tokens.write().await.add_token(&token_id).await {
+                            if !tokens.write().await.add_token(&token_id, true).await {
                                 tokio::time::sleep(tokio::time::Duration::from_secs(7)).await;
-                                if !tokens.write().await.add_token(&token_id).await {
-                                    log::warn!("Failed to add token {token_id} after 10 seconds");
+                                if !tokens.write().await.add_token(&token_id, true).await {
+                                    tokio::time::sleep(tokio::time::Duration::from_secs(50)).await;
+                                    if !tokens.write().await.add_token(&token_id, true).await {
+                                        log::warn!(
+                                            "Failed to add token {token_id} after 60 seconds"
+                                        );
+                                    }
                                 }
                             }
                         }
