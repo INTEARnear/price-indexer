@@ -117,6 +117,16 @@ async fn main() -> anyhow::Result<()> {
     log::info!("Metadata updated");
     let tokens = Arc::new(RwLock::new(tokens));
 
+    log::info!("Updating pools");
+    for (pool_id, (pool, data)) in tokens.read().await.pools.iter() {
+        tokens
+            .write()
+            .await
+            .update_pool(pool_id, pool.clone(), data.clone())
+            .await;
+    }
+    log::info!("Pools updated");
+
     let json_serialized = Arc::new(RwLock::new(None));
     let cancellation_token = CancellationToken::new();
 
