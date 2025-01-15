@@ -77,7 +77,7 @@ const USD_ROUTES: &[(&str, &str)] = &[
     ),
 ];
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Tokens {
     #[serde(skip, default = "create_routes_to_usd")]
     pub routes_to_usd: HashMap<AccountId, String>,
@@ -370,7 +370,7 @@ async fn get_owned_tokens(account_id: AccountId) -> HashMap<AccountId, u128> {
 }
 
 #[io_cached(time = 3600, disk = true, map_error = "|e| anyhow::anyhow!(e)")]
-async fn get_reference(reference: String) -> Result<serde_json::Value, anyhow::Error> {
+pub async fn get_reference(reference: String) -> Result<serde_json::Value, anyhow::Error> {
     if let Ok(url) = Url::parse(&reference) {
         if let Ok(response) = get_reqwest_client().get(url).send().await {
             let mut value = response.json::<serde_json::Value>().await?;

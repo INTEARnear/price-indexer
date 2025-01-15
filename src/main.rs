@@ -39,7 +39,7 @@ use serde::Deserialize;
 use supply::{get_circulating_supply, get_total_supply};
 use token::{get_reputation, get_slug, get_socials, is_spam, TokenScore};
 use token_metadata::{get_token_metadata, MetadataError};
-use tokens::Tokens;
+use tokens::{get_reference, Tokens};
 use tokio::sync::RwLock;
 use tokio::{
     fs::{self, OpenOptions},
@@ -206,9 +206,9 @@ async fn main() -> anyhow::Result<()> {
                         return Ok(());
                     }
 
-                    let mut tokens = tokens.write().await;
-                    tokens.recalculate_prices();
-                    for (token_id, token) in tokens.tokens.iter_mut() {
+                    let mut tokens_mut = tokens.read().await.clone();
+                    tokens_mut.recalculate_prices();
+                    for (token_id, token) in tokens_mut.tokens.iter_mut() {
                         if token.deleted {
                             continue;
                         }
@@ -291,14 +291,18 @@ async fn main() -> anyhow::Result<()> {
                         }
                     }
 
-
                     let mut spam_pending = Vec::new();
                     let mut token_metadatas = HashMap::new();
-                    for (token_id, token) in tokens.tokens.iter() {
+                    for (token_id, token) in tokens_mut.tokens.iter_mut() {
                         if token.deleted {
                             continue;
                         }
                         if let Ok(token_metadata) = get_token_metadata(token_id.clone()).await {
+                            if token.reference.is_null() {
+                                if let Some(reference) = token_metadata.reference.as_ref() {
+                                    token.reference = get_reference(reference.clone()).await.unwrap_or_default();
+                                }
+                            }
                             let meta_stringified = format!(
                                 "Symbol: {}\nName: {}\n",
                                 token_metadata.symbol.replace('\n', " "),
@@ -325,7 +329,7 @@ async fn main() -> anyhow::Result<()> {
                     let mut ref_compatibility_format_with_hardcoded = HashMap::new();
                     let mut super_precise_with_hardcoded = HashMap::new();
 
-                    for (token_id, token) in tokens.tokens.iter() {
+                    for (token_id, token) in tokens_mut.tokens.iter() {
                         if token.deleted {
                             continue;
                         }
@@ -376,7 +380,7 @@ async fn main() -> anyhow::Result<()> {
                         .flush_events(last_event.block_height, MAX_REDIS_EVENT_BUFFER_SIZE)
                         .await?;
 
-                    let full_data = serde_json::to_string(&tokens.tokens).unwrap();
+                    let full_data = serde_json::to_string(&tokens_mut.tokens).unwrap();
                     let ref_compatibility_format = ref_compatibility_format
                         .into_iter()
                         .sorted_by_key(|(token_id, _)| token_id.to_string())
@@ -407,7 +411,7 @@ async fn main() -> anyhow::Result<()> {
                             .open(SPAM_TOKENS_FILE)
                             .await
                             .expect("Failed to open spam tokens file");
-                        let existing_spam_list = tokens.spam_tokens.clone();
+                        let existing_spam_list = tokens_mut.spam_tokens.clone();
                         for token in spam_pending.iter() {
                             if !existing_spam_list.contains(token) {
                                 file.write_all(format!("{token} // added by AI\n").as_bytes())
@@ -419,17 +423,16 @@ async fn main() -> anyhow::Result<()> {
                             .await
                             .expect("Failed to flush spam tokens file");
                         drop(file);
-                        if !spam_pending.is_empty() {
-                            for token in spam_pending.iter() {
-                                if let Some(token) = tokens.tokens.get_mut(token) {
-                                    token.reputation = TokenScore::Spam;
-                                }
+                        for token in spam_pending.iter() {
+                            if let Some(token) = tokens_mut.tokens.get_mut(token) {
+                                token.reputation = TokenScore::Spam;
                             }
-                            tokens.spam_tokens.extend(spam_pending);
                         }
+                        tokens_mut.spam_tokens.extend(spam_pending);
                     }
 
-                    save_tokens(&tokens).await;
+                    *tokens.write().await = tokens_mut;
+                    save_tokens(&*tokens.read().await).await;
 
                     Ok::<(), anyhow::Error>(())
                 }
