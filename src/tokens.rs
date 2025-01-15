@@ -381,11 +381,11 @@ async fn get_reference(reference: String) -> Result<serde_json::Value, anyhow::E
         }
     } else {
         let reference = reference.trim_start_matches("/ipfs/");
-        if reference.len() == 0 {
+        if reference.is_empty() {
             return Ok(Default::default());
         }
         if let Ok(response) = get_reqwest_client()
-            .get(&format!("https://ipfs.io/ipfs/{reference}"))
+            .get(format!("https://ipfs.io/ipfs/{reference}"))
             .send()
             .await
         {
