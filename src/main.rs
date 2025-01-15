@@ -139,8 +139,19 @@ async fn main() -> anyhow::Result<()> {
             move |event| {
                 let tokens = Arc::clone(&tokens_clone);
                 async move {
-                    let token_id = event.account_id;
-                    tokens.write().await.add_token(&token_id).await;
+                    tokio::spawn(async move {
+                        let token_id = event.account_id;
+                        if !tokens.write().await.add_token(&token_id).await {
+                            // Allow RPC to catch up
+                            tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+                            if !tokens.write().await.add_token(&token_id).await {
+                                tokio::time::sleep(tokio::time::Duration::from_secs(7)).await;
+                                if !tokens.write().await.add_token(&token_id).await {
+                                    log::warn!("Failed to add token {token_id} after 10 seconds");
+                                }
+                            }
+                        }
+                    });
                     Ok::<(), Infallible>(())
                 }
             },
