@@ -112,21 +112,21 @@ pub async fn launch_http_server(
                     )
                     .route("/get-token-price", price_route(Arc::clone(&tokens), |token_id, token| {
                         HttpResponse::Ok().content_type("text/html; charset=utf8") // why does ref send this as html
-                            .insert_header(("Cache-Control", "public, max-age=5"))
+                            .insert_header(("Cache-Control", "public, max-age=1"))
                             .body(format!(r#"{{"token_contract_id": "{token_id}", "price": "{}"}}"#, token.price_usd_hardcoded.with_scale(12)))
                     }, Some(|token_id| {
                         HttpResponse::Ok().content_type("text/html; charset=utf8")
-                            .insert_header(("Cache-Control", "public, max-age=5"))
+                            .insert_header(("Cache-Control", "public, max-age=1"))
                             .body(format!(r#"{{"token_contract_id": "{token_id}", "price": "N/A"}}"#))
                     })))
                     .route("/price", price_route(Arc::clone(&tokens), |_, token| {
                         HttpResponse::Ok()
-                            .insert_header(("Cache-Control", "public, max-age=5"))
+                            .insert_header(("Cache-Control", "public, max-age=1"))
                             .json(token.price_usd_hardcoded.to_string().parse::<f64>().unwrap())
                     }, None))
                     .route("/super-precise-price", price_route(Arc::clone(&tokens), |_, token| {
                         HttpResponse::Ok()
-                            .insert_header(("Cache-Control", "public, max-age=5"))
+                            .insert_header(("Cache-Control", "public, max-age=1"))
                             .json(token.price_usd_hardcoded.to_string())
                     }, None)),
                 )
@@ -137,7 +137,7 @@ pub async fn launch_http_server(
                         async move {
                             let tokens = tokens.read().await;
                             HttpResponse::Ok()
-                                .insert_header(("Cache-Control", "public, max-age=5"))
+                                .insert_header(("Cache-Control", "public, max-age=1"))
                                 .json(tokens.tokens.get(&query.token_id))
                         }
                     }
@@ -148,7 +148,7 @@ pub async fn launch_http_server(
                         if let Some(json_serialized) = json_serialized_all_tokens.read().await.as_ref() {
                             HttpResponse::Ok()
                                 .content_type("application/json")
-                                .insert_header(("Cache-Control", "public, max-age=3"))
+                                .insert_header(("Cache-Control", "public, max-age=1"))
                                 .body(json_serialized.full_data.to_string())
                         } else {
                             HttpResponse::InternalServerError().finish()
@@ -160,7 +160,7 @@ pub async fn launch_http_server(
                     async move {
                         let tokens = tokens.read().await;
                         HttpResponse::Ok()
-                                .insert_header(("Cache-Control", "public, max-age=3"))
+                                .insert_header(("Cache-Control", "public, max-age=1"))
                                 .json(tokens.tokens.values().filter(|token| {
                                     token.reputation >= query.min_reputation
                                     && (query.account_ids.is_empty() || query.account_ids.contains(&token.account_id))
@@ -182,7 +182,7 @@ pub async fn launch_http_server(
                                 query.platform.clone(),
                             ).await;
                             HttpResponse::Ok()
-                                .insert_header(("Cache-Control", "public, max-age=3600"))
+                                .insert_header(("Cache-Control", "public, max-age=1"))
                                 .json(results)
                         }
                     }
@@ -194,7 +194,7 @@ pub async fn launch_http_server(
                         async move {
                             let tokens = tokens.read().await;
                             HttpResponse::Ok()
-                                .insert_header(("Cache-Control", "public, max-age=3600"))
+                                .insert_header(("Cache-Control", "public, max-age=1"))
                                 .json(&tokens.spam_tokens)
                         }
                     }
@@ -206,7 +206,7 @@ pub async fn launch_http_server(
                         async move {
                             let tokens = tokens.read().await;
                             HttpResponse::Ok()
-                                .insert_header(("Cache-Control", "public, max-age=3600"))
+                                .insert_header(("Cache-Control", "public, max-age=1"))
                                 .json(tokens
                                     .tokens
                                     .values()
@@ -223,7 +223,7 @@ pub async fn launch_http_server(
                         async move {
                             let tokens = tokens.read().await;
                             HttpResponse::Ok()
-                                .insert_header(("Cache-Control", "public, max-age=5"))
+                                .insert_header(("Cache-Control", "public, max-age=1"))
                                 .json(tokens
                                     .tokens
                                     .values()
@@ -239,7 +239,7 @@ pub async fn launch_http_server(
                         async move {
                             let tokens = tokens.read().await;
                             HttpResponse::Ok()
-                                .insert_header(("Cache-Control", "public, max-age=3600"))
+                                .insert_header(("Cache-Control", "public, max-age=1"))
                                 .json(tokens
                                     .tokens
                                     .values()
@@ -256,7 +256,7 @@ pub async fn launch_http_server(
                         async move {
                             let tokens = tokens.read().await;
                             HttpResponse::Ok()
-                                .insert_header(("Cache-Control", "public, max-age=5"))
+                                .insert_header(("Cache-Control", "public, max-age=1"))
                                 .json(tokens
                                     .tokens
                                     .values()
@@ -272,7 +272,7 @@ pub async fn launch_http_server(
                         async move {
                             let tokens = tokens.read().await;
                             HttpResponse::Ok()
-                                .insert_header(("Cache-Control", "public, max-age=3600"))
+                                .insert_header(("Cache-Control", "public, max-age=1"))
                                 .json(tokens
                                     .tokens
                                     .values()
@@ -289,7 +289,7 @@ pub async fn launch_http_server(
                         async move {
                             let tokens = tokens.read().await;
                             HttpResponse::Ok()
-                                .insert_header(("Cache-Control", "public, max-age=5"))
+                                .insert_header(("Cache-Control", "public, max-age=1"))
                                 .json(tokens
                                     .tokens
                                     .values()

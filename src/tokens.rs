@@ -398,7 +398,7 @@ pub async fn get_reference(reference: String) -> Result<serde_json::Value, anyho
     }
 }
 
-const STRING_TOO_LONG_LENGTH: usize = 2000;
+const STRING_TOO_LONG_LENGTH: usize = 5000;
 
 fn strip_long_strings(value: &mut serde_json::Value) {
     match value {
