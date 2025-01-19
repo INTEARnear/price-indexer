@@ -398,7 +398,9 @@ pub async fn get_reference(reference: String) -> Result<serde_json::Value, anyho
     }
 }
 
-const STRING_TOO_LONG_LENGTH: usize = 5000;
+const OBJECT_TOO_LONG_LENGTH: usize = 5000;
+const ARRAY_TOO_LONG_LENGTH: usize = 2500;
+const STRING_TOO_LONG_LENGTH: usize = 2000;
 
 fn strip_long_strings(value: &mut serde_json::Value) {
     match value {
@@ -407,7 +409,7 @@ fn strip_long_strings(value: &mut serde_json::Value) {
                 strip_long_strings(value);
             }
 
-            if serde_json::to_string(value).unwrap().len() > STRING_TOO_LONG_LENGTH {
+            if serde_json::to_string(value).unwrap().len() > OBJECT_TOO_LONG_LENGTH {
                 *value = serde_json::Value::String(
                     "<object too long to be included in prices.intear.tech>".to_string(),
                 );
@@ -418,7 +420,7 @@ fn strip_long_strings(value: &mut serde_json::Value) {
                 strip_long_strings(value);
             }
 
-            if serde_json::to_string(value).unwrap().len() > STRING_TOO_LONG_LENGTH {
+            if serde_json::to_string(value).unwrap().len() > ARRAY_TOO_LONG_LENGTH {
                 *value = serde_json::Value::String(
                     "<array too long to be included in prices.intear.tech>".to_string(),
                 );
