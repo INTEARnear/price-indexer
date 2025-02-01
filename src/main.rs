@@ -215,11 +215,11 @@ async fn main() -> anyhow::Result<()> {
                         }
 
                         let update_interval_blocks = match token.volume_usd_24h {
-                            ..1_000.0 => 9000,
+                            ..1_000.0 => 10000,
                             ..10_000.0 => 450,
-                            ..100_000.0 => 60,
-                            ..1_000_000.0 => 30,
-                            1_000_000.0.. => 15,
+                            ..100_000.0 => 30,
+                            ..1_000_000.0 => 15,
+                            1_000_000.0.. => 5,
                             _ => BlockHeightDelta::MAX,
                         };
                         if i % update_interval_blocks != 0 {
@@ -408,14 +408,26 @@ async fn main() -> anyhow::Result<()> {
                             super_precise_with_hardcoded
                                 .insert(token_id.clone(), price_usd_hardcoded.to_string());
 
-                                token_price_stream.add_event(PriceTokenEvent {
-                                    token: token_id.clone(),
-                                    price_usd: token.price_usd_raw.clone(),
-                                    timestamp_nanosec: SystemTime::now()
-                                        .duration_since(SystemTime::UNIX_EPOCH)
-                                        .unwrap()
-                                        .as_nanos(),
-                                });
+                            let update_interval_blocks = match token.volume_usd_24h {
+                                ..1_000.0 => 10000,
+                                ..10_000.0 => 450,
+                                ..100_000.0 => 30,
+                                ..1_000_000.0 => 15,
+                                1_000_000.0.. => 5,
+                                _ => BlockHeightDelta::MAX,
+                            };
+                            if i % update_interval_blocks != 0 {
+                                continue;
+                            }
+
+                            token_price_stream.add_event(PriceTokenEvent {
+                                token: token_id.clone(),
+                                price_usd: token.price_usd_raw.clone(),
+                                timestamp_nanosec: SystemTime::now()
+                                    .duration_since(SystemTime::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_nanos(),
+                            });
                         }
                     }
 
