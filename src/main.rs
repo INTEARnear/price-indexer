@@ -22,7 +22,7 @@ use std::{
 use cached::proc_macro::cached;
 use http_server::launch_http_server;
 use inevents_redis::RedisEventStream;
-use inindexer::near_indexer_primitives::types::AccountId;
+use inindexer::near_indexer_primitives::types::{AccountId, BlockHeightDelta};
 use intear_events::events::{
     newcontract::nep141::NewContractNep141Event, price::price_token::PriceTokenEvent,
     trade::trade_pool_change::TradePoolChangeEvent,
@@ -207,15 +207,22 @@ async fn main() -> anyhow::Result<()> {
                         .flush_events(last_event.block_height, MAX_REDIS_EVENT_BUFFER_SIZE)
                         .await?;
 
-                    // TODO dynamic interval based on volume
-                    if i % 30 != 0 {
-                        return Ok(());
-                    }
-
                     let mut tokens_mut = tokens.read().await.clone();
                     tokens_mut.recalculate_prices();
                     for (token_id, token) in tokens_mut.tokens.iter_mut() {
                         if token.deleted {
+                            continue;
+                        }
+
+                        let update_interval_blocks = match token.volume_usd_24h {
+                            ..1_000.0 => 9000,
+                            ..10_000.0 => 450,
+                            ..100_000.0 => 60,
+                            ..1_000_000.0 => 30,
+                            1_000_000.0.. => 15,
+                            _ => BlockHeightDelta::MAX,
+                        };
+                        if i % update_interval_blocks != 0 {
                             continue;
                         }
 
@@ -299,6 +306,7 @@ async fn main() -> anyhow::Result<()> {
 
                     let mut spam_pending = Vec::new();
                     let mut token_metadatas = HashMap::new();
+
                     for (token_id, token) in tokens_mut.tokens.iter_mut() {
                         if token.deleted {
                             continue;
@@ -325,6 +333,35 @@ async fn main() -> anyhow::Result<()> {
                                 }
                             }
                         }
+                    }
+
+
+                    if !spam_pending.is_empty() {
+                        let mut file = OpenOptions::new()
+                            .create(true)
+                            .write(true)
+                            .append(true)
+                            .open(SPAM_TOKENS_FILE)
+                            .await
+                            .expect("Failed to open spam tokens file");
+                        let existing_spam_list = tokens_mut.spam_tokens.clone();
+                        for token in spam_pending.iter() {
+                            if !existing_spam_list.contains(token) {
+                                file.write_all(format!("{token} // added by AI\n").as_bytes())
+                                    .await
+                                    .expect("Failed to write spam token");
+                            }
+                        }
+                        file.flush()
+                            .await
+                            .expect("Failed to flush spam tokens file");
+                        drop(file);
+                        for token in spam_pending.iter() {
+                            if let Some(token) = tokens_mut.tokens.get_mut(token) {
+                                token.reputation = TokenScore::Spam;
+                            }
+                        }
+                        tokens_mut.spam_tokens.extend(spam_pending);
                     }
 
                     let mut prices_only = HashMap::new();
@@ -408,34 +445,6 @@ async fn main() -> anyhow::Result<()> {
                         full_data,
                     });
                     log::info!("Updated all prices");
-
-                    if !spam_pending.is_empty() {
-                        let mut file = OpenOptions::new()
-                            .create(true)
-                            .write(true)
-                            .append(true)
-                            .open(SPAM_TOKENS_FILE)
-                            .await
-                            .expect("Failed to open spam tokens file");
-                        let existing_spam_list = tokens_mut.spam_tokens.clone();
-                        for token in spam_pending.iter() {
-                            if !existing_spam_list.contains(token) {
-                                file.write_all(format!("{token} // added by AI\n").as_bytes())
-                                    .await
-                                    .expect("Failed to write spam token");
-                            }
-                        }
-                        file.flush()
-                            .await
-                            .expect("Failed to flush spam tokens file");
-                        drop(file);
-                        for token in spam_pending.iter() {
-                            if let Some(token) = tokens_mut.tokens.get_mut(token) {
-                                token.reputation = TokenScore::Spam;
-                            }
-                        }
-                        tokens_mut.spam_tokens.extend(spam_pending);
-                    }
 
                     *tokens.write().await = tokens_mut;
                     save_tokens(&*tokens.read().await).await;
