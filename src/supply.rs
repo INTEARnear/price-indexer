@@ -309,7 +309,7 @@ pub async fn get_ft_total_supply(token_id: AccountId) -> Result<Balance, SupplyE
     }
     let client = JsonRpcClient::connect(RPC_URL);
     let request = methods::query::RpcQueryRequest {
-        block_reference: BlockReference::Finality(Finality::Final),
+        block_reference: BlockReference::Finality(Finality::None),
         request: QueryRequest::CallFunction {
             account_id: token_id,
             method_name: "ft_total_supply".into(),
@@ -363,7 +363,7 @@ pub async fn get_excluded_supply(
 async fn get_balance(token_id: AccountId, account_id: AccountId) -> Result<Balance, SupplyError> {
     let client = JsonRpcClient::connect(RPC_URL);
     let request = methods::query::RpcQueryRequest {
-        block_reference: BlockReference::Finality(Finality::Final),
+        block_reference: BlockReference::Finality(Finality::None),
         request: QueryRequest::CallFunction {
             account_id: token_id,
             method_name: "ft_balance_of".into(),

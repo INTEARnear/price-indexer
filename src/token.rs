@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 
 use cached::proc_macro::io_cached;
-use inindexer::near_indexer_primitives::types::{AccountId, Balance};
+use inindexer::near_indexer_primitives::types::{AccountId, Balance, BlockHeight};
 use inindexer::near_utils::dec_format;
 use intear_events::events::trade::trade_pool_change::PoolType;
 use num_traits::cast::ToPrimitive;
@@ -91,6 +91,8 @@ pub struct Token {
     pub volume_usd_24h: f64,
     #[serde(default)]
     pub volume_usd_7d: f64,
+    #[serde(default)]
+    pub created_at: BlockHeight,
 }
 
 fn default_account_id() -> AccountId {

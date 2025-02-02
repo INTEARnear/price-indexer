@@ -60,6 +60,7 @@ pub fn get_reqwest_client() -> &'static reqwest::Client {
 
 const SPAM_TOKENS_FILE: &str = "spam_tokens.txt";
 const MAX_REDIS_EVENT_BUFFER_SIZE: usize = 1_000;
+const TOKEN_IS_NEW_BLOCKS: BlockHeightDelta = 1000;
 
 #[derive(Debug, Deserialize)]
 struct JsonSerializedPrices {
@@ -123,7 +124,7 @@ async fn main() -> anyhow::Result<()> {
         tokens
             .write()
             .await
-            .update_pool(pool_id, pool.clone(), data.clone())
+            .update_pool(pool_id, pool.clone(), data.clone(), 0)
             .await;
     }
     log::info!("Pools updated");
@@ -152,12 +153,27 @@ async fn main() -> anyhow::Result<()> {
                 async move {
                     tokio::spawn(async move {
                         let token_id = event.account_id;
-                        if !tokens.write().await.add_token(&token_id, true).await {
+                        if !tokens
+                            .write()
+                            .await
+                            .add_token(&token_id, true, event.block_height)
+                            .await
+                        {
                             // Allow RPC to catch up
                             tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
-                            if !tokens.write().await.add_token(&token_id, true).await {
+                            if !tokens
+                                .write()
+                                .await
+                                .add_token(&token_id, true, event.block_height)
+                                .await
+                            {
                                 tokio::time::sleep(tokio::time::Duration::from_secs(7)).await;
-                                if !tokens.write().await.add_token(&token_id, true).await {
+                                if !tokens
+                                    .write()
+                                    .await
+                                    .add_token(&token_id, true, event.block_height)
+                                    .await
+                                {
                                     log::warn!("Failed to add token {token_id} after 10 seconds");
                                 }
                             }
@@ -222,7 +238,7 @@ async fn main() -> anyhow::Result<()> {
                             1_000_000.0.. => 5,
                             _ => BlockHeightDelta::MAX,
                         };
-                        if i % update_interval_blocks != 0 {
+                        if i % update_interval_blocks != 0 || token.created_at > last_event.block_height - TOKEN_IS_NEW_BLOCKS {
                             continue;
                         }
 
@@ -416,7 +432,7 @@ async fn main() -> anyhow::Result<()> {
                                 1_000_000.0.. => 5,
                                 _ => BlockHeightDelta::MAX,
                             };
-                            if i % update_interval_blocks != 0 {
+                            if i % update_interval_blocks != 0 || token.created_at > last_event.block_height - TOKEN_IS_NEW_BLOCKS {
                                 continue;
                             }
 
@@ -525,7 +541,12 @@ async fn process_pool_change(
     tokens
         .write()
         .await
-        .update_pool(&event.pool_id, event.pool.clone(), pool_data.clone())
+        .update_pool(
+            &event.pool_id,
+            event.pool.clone(),
+            pool_data.clone(),
+            event.block_height,
+        )
         .await;
 
     let token_read = tokens.read().await;

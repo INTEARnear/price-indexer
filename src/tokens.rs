@@ -141,7 +141,12 @@ impl Tokens {
         (max_pool, total_liquidity)
     }
 
-    pub async fn add_token(&mut self, token_id: &AccountId, force: bool) -> bool {
+    pub async fn add_token(
+        &mut self,
+        token_id: &AccountId,
+        force: bool,
+        current_block_height: BlockHeight,
+    ) -> bool {
         if self.tokens.contains_key(token_id) {
             return true;
         }
@@ -183,6 +188,7 @@ impl Tokens {
                         volume_usd_1h: 0.0,
                         volume_usd_24h: 0.0,
                         volume_usd_7d: 0.0,
+                        created_at: current_block_height,
                     },
                 );
                 true
@@ -196,7 +202,13 @@ impl Tokens {
         }
     }
 
-    pub async fn update_pool(&mut self, pool_id: &str, pool: PoolType, data: PoolData) {
+    pub async fn update_pool(
+        &mut self,
+        pool_id: &str,
+        pool: PoolType,
+        data: PoolData,
+        current_block_height: BlockHeight,
+    ) {
         let tokens = [data.tokens.0.clone(), data.tokens.1.clone()];
         self.pools.insert(pool_id.to_string(), (pool, data));
         for token_id in tokens {
@@ -204,7 +216,7 @@ impl Tokens {
             if let Some(pool) = main_pool {
                 let token = if let Some(token) = self.tokens.get_mut(&token_id) {
                     token
-                } else if self.add_token(&token_id, false).await {
+                } else if self.add_token(&token_id, false, current_block_height).await {
                     self.tokens.get_mut(&token_id).unwrap()
                 } else {
                     continue;
@@ -255,6 +267,7 @@ impl Tokens {
                         volume_usd_1h: 0.0,
                         volume_usd_24h: 0.0,
                         volume_usd_7d: 0.0,
+                        created_at: current_block_height,
                     },
                 );
             } else {
