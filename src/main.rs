@@ -238,7 +238,7 @@ async fn main() -> anyhow::Result<()> {
                             1_000_000.0.. => 5,
                             _ => BlockHeightDelta::MAX,
                         };
-                        if i % update_interval_blocks != 0 || token.created_at > last_event.block_height - TOKEN_IS_NEW_BLOCKS {
+                        if i % update_interval_blocks != 0 && token.created_at < last_event.block_height - TOKEN_IS_NEW_BLOCKS {
                             continue;
                         }
 
@@ -432,7 +432,7 @@ async fn main() -> anyhow::Result<()> {
                                 1_000_000.0.. => 5,
                                 _ => BlockHeightDelta::MAX,
                             };
-                            if i % update_interval_blocks != 0 || token.created_at > last_event.block_height - TOKEN_IS_NEW_BLOCKS {
+                            if i % update_interval_blocks != 0 && token.created_at < last_event.block_height - TOKEN_IS_NEW_BLOCKS {
                                 continue;
                             }
 
