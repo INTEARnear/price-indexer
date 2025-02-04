@@ -1,4 +1,5 @@
 mod http_server;
+mod network;
 mod pool_data;
 mod supply;
 #[cfg(test)]

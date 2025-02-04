@@ -10,9 +10,8 @@ use serde::{Deserialize, Serialize};
 use sqlx::types::BigDecimal;
 
 use crate::token_metadata::TokenMetadataWithoutIcon;
-use crate::tokens::USD_TOKEN;
 use crate::utils::serde_bigdecimal;
-use crate::{get_reqwest_client, pool_data::PoolData};
+use crate::{get_reqwest_client, network, pool_data::PoolData};
 
 type GetTokenPriceFn = fn(&BigDecimal) -> BigDecimal;
 const HARDCODED_TOKEN_PRICES: &[(&str, GetTokenPriceFn)] = &[
@@ -34,7 +33,6 @@ const HARDCODED_TOKEN_PRICES: &[(&str, GetTokenPriceFn)] = &[
         stablecoin_price,
     ),
     ("pre.meteor-token.near", |_| 0.into()), // MEPT
-                                             // TODO fetch HOT futures price from WhiteBIT
 ];
 
 fn stablecoin_price(actual_price_usd: &BigDecimal) -> BigDecimal {
@@ -177,7 +175,7 @@ pub fn calculate_price(
     routes: &HashMap<AccountId, String>,
     pool: &str,
 ) -> BigDecimal {
-    if token_id == USD_TOKEN {
+    if token_id == network::get_usd_token() {
         return BigDecimal::from(1);
     }
 
@@ -196,7 +194,7 @@ pub fn calculate_price(
         )
     };
     loop {
-        if current_token_id == USD_TOKEN {
+        if current_token_id == network::get_usd_token() {
             break current_amount;
         }
         if let Some(next_pool) = routes.get(&current_token_id) {

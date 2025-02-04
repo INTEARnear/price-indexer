@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::types::BigDecimal;
 
 use crate::{
-    get_reqwest_client,
+    get_reqwest_client, network,
     pool_data::PoolData,
     supply::{get_circulating_supply, get_total_supply},
     token::{calculate_price, get_hardcoded_price_usd, Token, TokenScore},
@@ -25,57 +25,6 @@ use crate::{
 
 /// Used to ignore warnings for this token.
 const KNOWN_TOKENS_WITH_NO_POOL: &[&str] = &[];
-
-pub const USD_TOKEN: &str = "usdt.tether-token.near";
-pub const USD_DECIMALS: u32 = 6;
-
-// Feel free to add other tokens in ROUTES if you're sure that the pools
-// won't unexpectedly go to 0 without this change in the code. If the
-// pool here is going to be 0, change it before removing liquidity.
-const USD_ROUTES: &[(&str, &str)] = &[
-    ("wrap.near", "REF-3879"), // NEAR-USDt
-    // TODO FRAX when stableswap is implemented, but no one uses it anyway so not a priority
-    // (
-    //     "853d955acef822db058eb8505911ed77f175b99e.factory.bridge.near", // FRAX
-    //     "4514", // FRAX-USDC stableswap
-    // ),
-    (
-        "blackdragon.tkn.near", // BLACKDRAGON
-        "REF-4276",             // BLACKDRAGON-NEAR
-    ),
-    (
-        "intel.tkn.near", // INTEAR
-        "REF-4663",       // INTEL-NEAR
-    ),
-    (
-        "ftv2.nekotoken.near", // NEKO
-        "REF-3807",            // NEKO-NEAR
-    ),
-    (
-        "meta-pool.near", // Staked NEAR
-        "REF-535",        // STNEAR-NEAR
-    ),
-    (
-        "dac17f958d2ee523a2206206994597c13d831ec7.factory.bridge.near", // USDT.e
-        "REF-4",                                                        // NEAR-USDT.e
-    ),
-    (
-        "a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.factory.bridge.near", // USDC.e
-        "REF-3",                                                        // NEAR-USDC.e
-    ),
-    (
-        "a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.factory.bridge.near", // USDC.e
-        "REF-3",                                                        // NEAR-USDC.e
-    ),
-    (
-        "nkok.tkn.near", // nKOK
-        "REF-4820",      // nKOK-NEAR
-    ),
-    (
-        "avb.tkn.near", // AVB
-        "REF-20",       // AVB-NEAR
-    ),
-];
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Tokens {
@@ -91,7 +40,7 @@ pub struct Tokens {
 }
 
 fn create_routes_to_usd() -> HashMap<AccountId, String> {
-    USD_ROUTES
+    network::get_usd_routes()
         .iter()
         .map(|(token_id, pool_id)| (token_id.parse().unwrap(), pool_id.to_string()))
         .collect()
@@ -117,7 +66,7 @@ impl Tokens {
                 let liquidity = pool_data.liquidity.0.clone();
                 if liquidity > max_liquidity
                     && (self.routes_to_usd.contains_key(&pool_data.tokens.1)
-                        || pool_data.tokens.1 == USD_TOKEN)
+                        || pool_data.tokens.1 == network::get_usd_token())
                 {
                     max_liquidity = liquidity.clone();
                     max_pool = Some(pool_id.clone());
@@ -125,7 +74,7 @@ impl Tokens {
                 total_liquidity += liquidity;
             } else if pool_data.tokens.1 == *token_id
                 && (self.routes_to_usd.contains_key(&pool_data.tokens.0)
-                    || pool_data.tokens.0 == USD_TOKEN)
+                    || pool_data.tokens.0 == network::get_usd_token())
             {
                 let liquidity = pool_data.liquidity.1.clone();
                 if liquidity > max_liquidity {
@@ -227,13 +176,14 @@ impl Tokens {
                 token.price_usd = token.price_usd_raw.clone()
                     * BigDecimal::from_str(&(10u128.pow(token.metadata.decimals)).to_string())
                         .unwrap()
-                    / BigDecimal::from_str(&(10u128.pow(USD_DECIMALS)).to_string()).unwrap();
+                    / BigDecimal::from_str(&(10u128.pow(network::get_usd_decimals())).to_string())
+                        .unwrap();
                 token.price_usd_hardcoded = get_hardcoded_price_usd(&token_id, &token.price_usd);
                 token.main_pool = Some(pool);
                 token.liquidity_usd =
                     ToPrimitive::to_f64(&(token_liquidity * token.price_usd_raw.clone()))
                         .unwrap_or_default()
-                        / 10f64.powi(USD_DECIMALS as i32)
+                        / 10f64.powi(network::get_usd_decimals() as i32)
                         * 2f64;
             } else if let Some(token) = self.tokens.get_mut(&token_id) {
                 token.main_pool = None;
@@ -277,7 +227,7 @@ impl Tokens {
     }
 
     pub fn recalculate_prices(&mut self) {
-        let sorting_order = USD_ROUTES
+        let sorting_order = network::get_usd_routes()
             .iter()
             .enumerate()
             .map(|(i, (token_id, _))| (AccountId::from_str(token_id).unwrap(), i))
@@ -295,7 +245,8 @@ impl Tokens {
                 token.price_usd = token.price_usd_raw.clone()
                     * BigDecimal::from_str(&(10u128.pow(token.metadata.decimals)).to_string())
                         .unwrap()
-                    / BigDecimal::from_str(&(10u128.pow(USD_DECIMALS)).to_string()).unwrap();
+                    / BigDecimal::from_str(&(10u128.pow(network::get_usd_decimals())).to_string())
+                        .unwrap();
                 token.price_usd_hardcoded = get_hardcoded_price_usd(&token_id, &token.price_usd);
             }
         }

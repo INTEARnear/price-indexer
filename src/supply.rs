@@ -78,6 +78,32 @@ async fn hardcoded_total_supply(token_id: AccountId) -> Option<Balance> {
                     .next()?,
             )
         }
+        "wrap.testnet" => {
+            #[derive(Debug, Deserialize)]
+            struct ApiResponse {
+                stats: Vec<Stat>,
+            }
+
+            #[derive(Debug, Deserialize)]
+            struct Stat {
+                #[serde(with = "dec_format")]
+                total_supply: Balance,
+            }
+
+            let response = get_reqwest_client()
+                .get("https://api3-testnet.nearblocks.io/v1/stats")
+                .send()
+                .await
+                .ok()?;
+            let response: ApiResponse = response.json().await.ok()?;
+            Some(
+                response
+                    .stats
+                    .into_iter()
+                    .map(|stat| stat.total_supply)
+                    .next()?,
+            )
+        }
         _ => None,
     }
 }
@@ -116,6 +142,32 @@ async fn hardcoded_circulating_supply(token_id: AccountId) -> Option<Balance> {
             let client = reqwest::Client::new();
             let response = client
                 .get("https://api3.nearblocks.io/v1/stats")
+                .send()
+                .await
+                .ok()?;
+            let response: ApiResponse = response.json().await.ok()?;
+            Some(
+                response
+                    .stats
+                    .into_iter()
+                    .map(|stat| stat.circulating_supply)
+                    .next()?,
+            )
+        }
+        "wrap.testnet" => {
+            #[derive(Debug, Deserialize)]
+            struct ApiResponse {
+                stats: Vec<Stat>,
+            }
+
+            #[derive(Debug, Deserialize)]
+            struct Stat {
+                #[serde(with = "dec_format")]
+                circulating_supply: Balance,
+            }
+
+            let response = get_reqwest_client()
+                .get("https://api3-testnet.nearblocks.io/v1/stats")
                 .send()
                 .await
                 .ok()?;
