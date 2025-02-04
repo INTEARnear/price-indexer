@@ -61,7 +61,6 @@ pub fn get_reqwest_client() -> &'static reqwest::Client {
 
 const SPAM_TOKENS_FILE: &str = "spam_tokens.txt";
 const MAX_REDIS_EVENT_BUFFER_SIZE: usize = 1_000;
-const TOKEN_IS_NEW_BLOCKS: BlockHeightDelta = 1000;
 
 #[derive(Debug, Deserialize)]
 struct JsonSerializedPrices {
@@ -231,15 +230,18 @@ async fn main() -> anyhow::Result<()> {
                             continue;
                         }
 
-                        let update_interval_blocks = match token.volume_usd_24h {
-                            ..1_000.0 => 10000,
-                            ..10_000.0 => 450,
-                            ..100_000.0 => 30,
-                            ..1_000_000.0 => 15,
-                            1_000_000.0.. => 5,
+                        let update_interval_blocks = match (token.volume_usd_24h, last_event.block_height - token.created_at) {
+                            (_, ..1_000) => 3,
+                            (_, ..10_000) => 10,
+                            (_, ..100_000) => 30,
+                            (..1_000.0, _) => 10000,
+                            (..10_000.0, _) => 450,
+                            (..100_000.0, _) => 30,
+                            (..1_000_000.0, _) => 15,
+                            (1_000_000.0.., _) => 5,
                             _ => BlockHeightDelta::MAX,
                         };
-                        if i % update_interval_blocks != 0 && token.created_at < last_event.block_height - TOKEN_IS_NEW_BLOCKS {
+                        if i % update_interval_blocks != 0 {
                             continue;
                         }
 
@@ -425,15 +427,18 @@ async fn main() -> anyhow::Result<()> {
                             super_precise_with_hardcoded
                                 .insert(token_id.clone(), price_usd_hardcoded.to_string());
 
-                            let update_interval_blocks = match token.volume_usd_24h {
-                                ..1_000.0 => 10000,
-                                ..10_000.0 => 450,
-                                ..100_000.0 => 30,
-                                ..1_000_000.0 => 15,
-                                1_000_000.0.. => 5,
+                            let update_interval_blocks = match (token.volume_usd_24h, last_event.block_height - token.created_at) {
+                                (_, ..1_000) => 3,
+                                (_, ..10_000) => 10,
+                                (_, ..100_000) => 30,
+                                (..1_000.0, _) => 10000,
+                                (..10_000.0, _) => 450,
+                                (..100_000.0, _) => 30,
+                                (..1_000_000.0, _) => 15,
+                                (1_000_000.0.., _) => 5,
                                 _ => BlockHeightDelta::MAX,
                             };
-                            if i % update_interval_blocks != 0 && token.created_at < last_event.block_height - TOKEN_IS_NEW_BLOCKS {
+                            if i % update_interval_blocks != 0 {
                                 continue;
                             }
 
