@@ -231,7 +231,7 @@ async fn main() -> anyhow::Result<()> {
                         }
 
                         let update_interval_blocks = match (token.volume_usd_24h, last_event.block_height - token.created_at) {
-                            (_, ..1_000) => 3,
+                            (_, ..1_000) => 1,
                             (_, ..10_000) => 10,
                             (_, ..100_000) => 30,
                             (..1_000.0, _) => 10000,
@@ -428,7 +428,7 @@ async fn main() -> anyhow::Result<()> {
                                 .insert(token_id.clone(), price_usd_hardcoded.to_string());
 
                             let update_interval_blocks = match (token.volume_usd_24h, last_event.block_height - token.created_at) {
-                                (_, ..1_000) => 3,
+                                (_, ..1_000) => 1,
                                 (_, ..10_000) => 10,
                                 (_, ..100_000) => 30,
                                 (..1_000.0, _) => 10000,
