@@ -11,13 +11,13 @@ use near_jsonrpc_client::{
 use near_jsonrpc_primitives::types::query::QueryResponseKind;
 use serde::{Deserialize, Serialize};
 
-use crate::utils::RPC_URL;
+use crate::utils::get_rpc_url;
 
 #[cached(time = 3600, result = true)]
 pub async fn get_token_metadata(
     token_id: AccountId,
 ) -> Result<TokenMetadataWithoutIcon, MetadataError> {
-    let client = JsonRpcClient::connect(RPC_URL);
+    let client = JsonRpcClient::connect(get_rpc_url());
     let request = methods::query::RpcQueryRequest {
         block_reference: BlockReference::Finality(Finality::None),
         request: QueryRequest::CallFunction {

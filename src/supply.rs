@@ -29,7 +29,7 @@ use near_jsonrpc_client::{
 use near_jsonrpc_primitives::types::query::QueryResponseKind;
 use serde::Deserialize;
 
-use crate::{get_reqwest_client, utils::RPC_URL};
+use crate::{get_reqwest_client, utils::get_rpc_url};
 
 const ZERO_ADDRESS: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
@@ -359,7 +359,7 @@ pub async fn get_ft_total_supply(token_id: AccountId) -> Result<Balance, SupplyE
     if let Some(hardcoded_max_total_supply) = hardcoded_max_total_supply(token_id.clone()).await {
         return Ok(hardcoded_max_total_supply);
     }
-    let client = JsonRpcClient::connect(RPC_URL);
+    let client = JsonRpcClient::connect(get_rpc_url());
     let request = methods::query::RpcQueryRequest {
         block_reference: BlockReference::Finality(Finality::None),
         request: QueryRequest::CallFunction {
@@ -413,7 +413,7 @@ pub async fn get_excluded_supply(
 
 #[cached(time = 60, result = true)]
 async fn get_balance(token_id: AccountId, account_id: AccountId) -> Result<Balance, SupplyError> {
-    let client = JsonRpcClient::connect(RPC_URL);
+    let client = JsonRpcClient::connect(get_rpc_url());
     let request = methods::query::RpcQueryRequest {
         block_reference: BlockReference::Finality(Finality::None),
         request: QueryRequest::CallFunction {

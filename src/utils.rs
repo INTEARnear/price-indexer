@@ -1,4 +1,6 @@
-pub const RPC_URL: &str = "https://rpc.shitzuapes.xyz";
+pub fn get_rpc_url() -> String {
+    std::env::var("RPC_URL").unwrap_or_else(|_| "https://rpc.shitzuapes.xyz".to_string())
+}
 
 pub mod serde_bigdecimal {
     use serde::{de::Error, Deserialize, Deserializer, Serializer};

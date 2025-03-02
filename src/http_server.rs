@@ -164,7 +164,7 @@ pub async fn launch_http_server(
                                 .json(tokens.tokens.values().filter(|token| {
                                     token.reputation >= query.min_reputation
                                     && (query.account_ids.is_empty() || query.account_ids.contains(&token.account_id))
-                                    && query.platform.as_ref().map_or(true, |platform| token.account_id.as_str().ends_with(&format!(".{platform}")))
+                                    && query.platform.as_ref().is_none_or(|platform| token.account_id.as_str().ends_with(&format!(".{platform}")))
                                 }).take(query.take).collect::<Vec<_>>())
                     }
                 }))
