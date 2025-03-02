@@ -236,9 +236,7 @@ async fn main() -> anyhow::Result<()> {
                             (_, ..100_000) => 30,
                             (..1_000.0, _) => 10000,
                             (..10_000.0, _) => 450,
-                            (..100_000.0, _) => 30,
-                            (..1_000_000.0, _) => 15,
-                            (1_000_000.0.., _) => 5,
+                            (10_000.0.., _) => 60,
                             _ => BlockHeightDelta::MAX,
                         };
                         if i % update_interval_blocks != 0 {
@@ -252,16 +250,12 @@ async fn main() -> anyhow::Result<()> {
                             total_supply_result,
                             circulating_supply_result,
                             circulating_supply_excluding_team_result,
-                            volume_1h_result,
                             volume_24h_result,
-                            volume_7d_result,
                         ) = tokio::join!(
                             get_total_supply(&token_id),
                             get_circulating_supply(&token_id, false),
                             get_circulating_supply(&token_id, true),
-                            get_volume_1h(token_id.clone()),
                             get_volume_24h(token_id.clone()),
-                            get_volume_7d(token_id.clone()),
                         );
 
                         match total_supply_result {
@@ -295,29 +289,11 @@ async fn main() -> anyhow::Result<()> {
                             }
                         }
 
-                        match volume_1h_result {
-                            Ok(volume_1h) => token.volume_usd_1h = volume_1h,
-                            Err(e) => {
-                                if reputation >= TokenScore::NotFake {
-                                    log::warn!("Failed to get 1h volume for {token_id}: {e:?}")
-                                }
-                            }
-                        }
-
                         match volume_24h_result {
                             Ok(volume_24h) => token.volume_usd_24h = volume_24h,
                             Err(e) => {
                                 if reputation >= TokenScore::NotFake {
                                     log::warn!("Failed to get 24h volume for {token_id}: {e:?}")
-                                }
-                            }
-                        }
-
-                        match volume_7d_result {
-                            Ok(volume_7d) => token.volume_usd_7d = volume_7d,
-                            Err(e) => {
-                                if reputation >= TokenScore::NotFake {
-                                    log::warn!("Failed to get 7d volume for {token_id}: {e:?}")
                                 }
                             }
                         }
@@ -581,34 +557,10 @@ async fn create_redis_connection() -> ConnectionManager {
 }
 
 #[cached(time = 300, result = true)]
-async fn get_volume_1h(token_id: AccountId) -> Result<f64, anyhow::Error> {
-    Ok(get_reqwest_client()
-        .get(format!(
-            "https://events-v3.intear.tech/v3/trade_swap/volume_usd_1h?token_id={token_id}"
-        ))
-        .send()
-        .await?
-        .json::<f64>()
-        .await?)
-}
-
-#[cached(time = 300, result = true)]
 async fn get_volume_24h(token_id: AccountId) -> Result<f64, anyhow::Error> {
     Ok(get_reqwest_client()
         .get(format!(
             "https://events-v3.intear.tech/v3/trade_swap/volume_usd_24h?token_id={token_id}"
-        ))
-        .send()
-        .await?
-        .json::<f64>()
-        .await?)
-}
-
-#[cached(time = 3600, result = true)]
-async fn get_volume_7d(token_id: AccountId) -> Result<f64, anyhow::Error> {
-    Ok(get_reqwest_client()
-        .get(format!(
-            "https://events-v3.intear.tech/v3/trade_swap/volume_usd_7d?token_id={token_id}"
         ))
         .send()
         .await?

@@ -84,11 +84,7 @@ pub struct Token {
     #[serde(default)]
     pub liquidity_usd: f64,
     #[serde(default)]
-    pub volume_usd_1h: f64,
-    #[serde(default)]
     pub volume_usd_24h: f64,
-    #[serde(default)]
-    pub volume_usd_7d: f64,
     #[serde(default)]
     pub created_at: BlockHeight,
 }

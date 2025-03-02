@@ -134,9 +134,7 @@ impl Tokens {
                         },
                         metadata,
                         liquidity_usd: 0.0,
-                        volume_usd_1h: 0.0,
                         volume_usd_24h: 0.0,
-                        volume_usd_7d: 0.0,
                         created_at: current_block_height,
                     },
                 );
@@ -214,9 +212,7 @@ impl Tokens {
                         },
                         metadata,
                         liquidity_usd: 0.0,
-                        volume_usd_1h: 0.0,
                         volume_usd_24h: 0.0,
-                        volume_usd_7d: 0.0,
                         created_at: current_block_height,
                     },
                 );
