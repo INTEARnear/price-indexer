@@ -418,14 +418,16 @@ async fn main() -> anyhow::Result<()> {
                                 continue;
                             }
 
-                            token_price_stream.add_event(PriceTokenEvent {
-                                token: token_id.clone(),
-                                price_usd: token.price_usd_raw.clone(),
-                                timestamp_nanosec: SystemTime::now()
-                                    .duration_since(SystemTime::UNIX_EPOCH)
-                                    .unwrap()
-                                    .as_nanos(),
-                            });
+                            if std::env::var("NO_EVENTS").is_err() {
+                                token_price_stream.add_event(PriceTokenEvent {
+                                    token: token_id.clone(),
+                                    price_usd: token.price_usd_raw.clone(),
+                                    timestamp_nanosec: SystemTime::now()
+                                        .duration_since(SystemTime::UNIX_EPOCH)
+                                        .unwrap()
+                                        .as_nanos(),
+                                });
+                            }
                         }
                     }
 
@@ -501,7 +503,7 @@ async fn load_tokens() -> Result<Tokens, anyhow::Error> {
             }
             tokens.spam_tokens = spam_tokens;
         } else {
-            log::warn!("Failed to open spam tokens file. Doesn it not exist?");
+            log::warn!("Failed to open spam tokens file. Does it not exist?");
         }
         tokens
     })
@@ -532,17 +534,19 @@ async fn process_pool_change(
         .await;
 
     let token_read = tokens.read().await;
-    for token_id in [&pool_data.tokens.0, &pool_data.tokens.1] {
-        if let Some(token) = token_read.tokens.get(token_id) {
-            let token_price_event = PriceTokenEvent {
-                token: token_id.clone(),
-                price_usd: token.price_usd_raw.clone(),
-                timestamp_nanosec: SystemTime::now()
-                    .duration_since(SystemTime::UNIX_EPOCH)
-                    .unwrap()
-                    .as_nanos(),
-            };
-            token_price_stream.add_event(token_price_event);
+    if std::env::var("NO_EVENTS").is_err() {
+        for token_id in [&pool_data.tokens.0, &pool_data.tokens.1] {
+            if let Some(token) = token_read.tokens.get(token_id) {
+                let token_price_event = PriceTokenEvent {
+                    token: token_id.clone(),
+                    price_usd: token.price_usd_raw.clone(),
+                    timestamp_nanosec: SystemTime::now()
+                        .duration_since(SystemTime::UNIX_EPOCH)
+                        .unwrap()
+                        .as_nanos(),
+                };
+                token_price_stream.add_event(token_price_event);
+            }
         }
     }
 }
