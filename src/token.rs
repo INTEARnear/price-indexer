@@ -6,12 +6,17 @@ use inindexer::near_indexer_primitives::types::{AccountId, Balance, BlockHeight}
 use inindexer::near_utils::dec_format;
 use intear_events::events::trade::trade_pool_change::PoolType;
 use num_traits::cast::ToPrimitive;
+use num_traits::FromPrimitive;
 use serde::{Deserialize, Serialize};
 use sqlx::types::BigDecimal;
 
+use crate::price_sources::oneinch::{get_oneinch_price, Network};
 use crate::token_metadata::TokenMetadataWithoutIcon;
 use crate::utils::serde_bigdecimal;
-use crate::{get_reqwest_client, network, pool_data::PoolData};
+use crate::{
+    get_reqwest_client, network, pool_data::PoolData, price_sources::binance::get_binance_price,
+    price_sources::jupiter::get_jupiter_price,
+};
 
 type GetTokenPriceFn = fn(&BigDecimal) -> BigDecimal;
 const HARDCODED_TOKEN_PRICES: &[(&str, GetTokenPriceFn)] = &[
@@ -217,15 +222,143 @@ pub fn calculate_price(
     }
 }
 
-pub fn get_hardcoded_price_usd(token_id: &AccountId, actual_price_usd: &BigDecimal) -> BigDecimal {
+pub enum HardcodedTokenPrice {
+    /// If not available, use the previous price.
+    NotAvailable,
+    Price(BigDecimal),
+    /// Use this token's price instead
+    Alias(AccountId),
+}
+
+pub fn get_hardcoded_price_usd(
+    token_id: &AccountId,
+    actual_price_usd: &BigDecimal,
+) -> HardcodedTokenPrice {
     if let Some(hardcoded_price_fn) = HARDCODED_TOKEN_PRICES
         .iter()
         .find(|(hardcoded_token_id, _)| hardcoded_token_id == token_id)
         .map(|(_, price_fn)| price_fn)
     {
-        hardcoded_price_fn(actual_price_usd)
+        HardcodedTokenPrice::Price(hardcoded_price_fn(actual_price_usd))
+    } else if token_id.as_str().ends_with(".omft.near") {
+        match token_id.as_str() {
+            "bera.omft.near" => match get_binance_price("BERAUSDT") {
+                Some(price) => HardcodedTokenPrice::Price(price),
+                None => HardcodedTokenPrice::NotAvailable,
+            },
+            "gnosis.omft.near" => HardcodedTokenPrice::Alias(
+                "6b175474e89094c44da98b954eedeac495271d0f.factory.bridge.near"
+                    .parse()
+                    .unwrap(),
+            ),
+            "xrp.omft.near" => match get_binance_price("XRPUSDT") {
+                Some(price) => HardcodedTokenPrice::Price(price),
+                None => HardcodedTokenPrice::NotAvailable,
+            },
+            "pol.omft.near" => match get_binance_price("POLUSDT") {
+                Some(price) => HardcodedTokenPrice::Price(price),
+                None => HardcodedTokenPrice::NotAvailable,
+            },
+            "btc.omft.near" => HardcodedTokenPrice::Alias(
+                "2260fac5e5542a773aa44fbcfedf7c193bc2c599.factory.bridge.near"
+                    .parse()
+                    .unwrap(),
+            ),
+            "sol.omft.near" => {
+                HardcodedTokenPrice::Alias("22.contract.portalbridge.near".parse().unwrap())
+            }
+            "base.omft.near" => HardcodedTokenPrice::Alias("aurora".parse().unwrap()),
+            "doge.omft.near" => match get_binance_price("DOGEUSDT") {
+                Some(price) => HardcodedTokenPrice::Price(price),
+                None => HardcodedTokenPrice::NotAvailable,
+            },
+            "bsc.omft.near" => match get_binance_price("BNBUSDT") {
+                Some(price) => HardcodedTokenPrice::Price(price),
+                None => HardcodedTokenPrice::NotAvailable,
+            },
+            "arb.omft.near" => match get_binance_price("ARBUSDT") {
+                Some(price) => HardcodedTokenPrice::Price(price),
+                None => HardcodedTokenPrice::NotAvailable,
+            },
+            "zec.omft.near" => match get_binance_price("ZECUSDT") {
+                Some(price) => HardcodedTokenPrice::Price(price),
+                None => HardcodedTokenPrice::NotAvailable,
+            },
+            "eth.omft.near" => HardcodedTokenPrice::Alias("aurora".parse().unwrap()),
+            _ => match token_id.as_str().split_once('-') {
+                Some(("sol", token_id)) => {
+                    match get_jupiter_price(token_id.trim_end_matches(".omft.near"))
+                        .map(FromPrimitive::from_f64)
+                    {
+                        Some(Some(price)) => HardcodedTokenPrice::Price(price),
+                        _ => HardcodedTokenPrice::NotAvailable,
+                    }
+                }
+                Some(("eth", token_id)) => {
+                    match get_oneinch_price(
+                        Network::Ethereum,
+                        token_id.trim_end_matches(".omft.near"),
+                    )
+                    .map(FromPrimitive::from_f64)
+                    {
+                        Some(Some(price)) => HardcodedTokenPrice::Price(price),
+                        _ => HardcodedTokenPrice::NotAvailable,
+                    }
+                }
+                Some(("pol", token_id)) => {
+                    match get_oneinch_price(
+                        Network::Polygon,
+                        token_id.trim_end_matches(".omft.near"),
+                    )
+                    .map(FromPrimitive::from_f64)
+                    {
+                        Some(Some(price)) => HardcodedTokenPrice::Price(price),
+                        _ => HardcodedTokenPrice::NotAvailable,
+                    }
+                }
+                Some(("bsc", token_id)) => {
+                    match get_oneinch_price(Network::Bsc, token_id.trim_end_matches(".omft.near"))
+                        .map(FromPrimitive::from_f64)
+                    {
+                        Some(Some(price)) => HardcodedTokenPrice::Price(price),
+                        _ => HardcodedTokenPrice::NotAvailable,
+                    }
+                }
+                Some(("gnosis", token_id)) => {
+                    match get_oneinch_price(
+                        Network::Gnosis,
+                        token_id.trim_end_matches(".omft.near"),
+                    )
+                    .map(FromPrimitive::from_f64)
+                    {
+                        Some(Some(price)) => HardcodedTokenPrice::Price(price),
+                        _ => HardcodedTokenPrice::NotAvailable,
+                    }
+                }
+                Some(("arb", token_id)) => {
+                    match get_oneinch_price(
+                        Network::Arbitrum,
+                        token_id.trim_end_matches(".omft.near"),
+                    )
+                    .map(FromPrimitive::from_f64)
+                    {
+                        Some(Some(price)) => HardcodedTokenPrice::Price(price),
+                        _ => HardcodedTokenPrice::NotAvailable,
+                    }
+                }
+                Some(("base", token_id)) => {
+                    match get_oneinch_price(Network::Base, token_id.trim_end_matches(".omft.near"))
+                        .map(FromPrimitive::from_f64)
+                    {
+                        Some(Some(price)) => HardcodedTokenPrice::Price(price),
+                        _ => HardcodedTokenPrice::NotAvailable,
+                    }
+                }
+                _ => HardcodedTokenPrice::NotAvailable,
+            },
+        }
     } else {
-        actual_price_usd.clone()
+        HardcodedTokenPrice::Price(actual_price_usd.clone())
     }
 }
 

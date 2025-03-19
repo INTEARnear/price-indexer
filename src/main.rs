@@ -1,9 +1,8 @@
 mod http_server;
 mod network;
 mod pool_data;
+mod price_sources;
 mod supply;
-#[cfg(test)]
-mod tests;
 mod token;
 mod token_metadata;
 mod tokens;
@@ -76,7 +75,7 @@ struct JsonSerializedPrices {
 }
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() -> Result<(), anyhow::Error> {
     dotenvy::dotenv().ok();
     simple_logger::SimpleLogger::new()
         .with_level(log::LevelFilter::Info)
@@ -133,6 +132,10 @@ async fn main() -> anyhow::Result<()> {
     let cancellation_token = CancellationToken::new();
 
     let mut join_handles = Vec::new();
+
+    tokio::spawn(price_sources::binance::start_binance_ws());
+    tokio::spawn(price_sources::jupiter::subscribe_to_solana_updates());
+    tokio::spawn(price_sources::oneinch::subscribe_to_oneinch_updates());
 
     join_handles.push(tokio::spawn(launch_http_server(
         Arc::clone(&tokens),

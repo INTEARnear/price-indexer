@@ -15,6 +15,7 @@ use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use sqlx::types::BigDecimal;
 
+use crate::token::HardcodedTokenPrice;
 use crate::{
     get_reqwest_client, network,
     pool_data::PoolData,
@@ -161,6 +162,21 @@ impl Tokens {
         for token_id in tokens {
             let (main_pool, token_liquidity) = self.recalculate_token(&token_id);
             if let Some(pool) = main_pool {
+                let hardcoded_price = get_hardcoded_price_usd(
+                    &token_id,
+                    self.tokens
+                        .get(&token_id)
+                        .map_or(&BigDecimal::from(0), |token| &token.price_usd_hardcoded),
+                );
+                let aliased_token_price =
+                    if let HardcodedTokenPrice::Alias(other_token_id) = &hardcoded_price {
+                        self.tokens
+                            .get(other_token_id)
+                            .map(|other_token| other_token.price_usd_hardcoded.clone())
+                    } else {
+                        None
+                    };
+
                 let token = if let Some(token) = self.tokens.get_mut(&token_id) {
                     token
                 } else if self.add_token(&token_id, false, current_block_height).await {
@@ -176,7 +192,14 @@ impl Tokens {
                         .unwrap()
                     / BigDecimal::from_str(&(10u128.pow(network::get_usd_decimals())).to_string())
                         .unwrap();
-                token.price_usd_hardcoded = get_hardcoded_price_usd(&token_id, &token.price_usd);
+                token.price_usd_hardcoded = match hardcoded_price {
+                    HardcodedTokenPrice::Price(price) => price,
+                    HardcodedTokenPrice::NotAvailable => token.price_usd_hardcoded.clone(),
+                    HardcodedTokenPrice::Alias(_) => {
+                        // Already fetched the price of the aliased token
+                        aliased_token_price.unwrap_or(token.price_usd_hardcoded.clone())
+                    }
+                };
                 token.main_pool = Some(pool);
                 token.liquidity_usd =
                     ToPrimitive::to_f64(&(token_liquidity * token.price_usd_raw.clone()))
@@ -234,17 +257,37 @@ impl Tokens {
             .cloned()
             .sorted_by_key(|token_id| sorting_order.get(token_id).unwrap_or(&usize::MAX))
         {
+            let hardcoded_price = get_hardcoded_price_usd(
+                &token_id,
+                self.tokens
+                    .get(&token_id)
+                    .map_or(&BigDecimal::from(0), |token| &token.price_usd_hardcoded),
+            );
+            let aliased_token_price =
+                if let HardcodedTokenPrice::Alias(other_token_id) = &hardcoded_price {
+                    self.tokens
+                        .get(other_token_id)
+                        .map(|other_token| other_token.price_usd_hardcoded.clone())
+                } else {
+                    None
+                };
             let token = self.tokens.get_mut(&token_id).unwrap();
             if let Some(main_pool) = &token.main_pool {
-                token.price_usd_raw =
-                    calculate_price(&token_id, &self.pools, &self.routes_to_usd, main_pool);
+                calculate_price(&token_id, &self.pools, &self.routes_to_usd, main_pool);
                 token.price_usd = token.price_usd_raw.clone()
                     * BigDecimal::from_str(&(10u128.pow(token.metadata.decimals)).to_string())
                         .unwrap()
                     / BigDecimal::from_str(&(10u128.pow(network::get_usd_decimals())).to_string())
                         .unwrap();
-                token.price_usd_hardcoded = get_hardcoded_price_usd(&token_id, &token.price_usd);
             }
+            token.price_usd_hardcoded = match hardcoded_price {
+                HardcodedTokenPrice::Price(price) => price,
+                HardcodedTokenPrice::NotAvailable => token.price_usd_hardcoded.clone(),
+                HardcodedTokenPrice::Alias(_) => {
+                    // Already fetched the price of the aliased token
+                    aliased_token_price.unwrap_or(token.price_usd_hardcoded.clone())
+                }
+            };
         }
     }
 
