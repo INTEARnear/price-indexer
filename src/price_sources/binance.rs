@@ -67,8 +67,7 @@ async fn connect_to_binance_ws(url: &str, symbols: &[String]) -> Result<(), anyh
 
 pub async fn start_binance_ws() -> Result<(), anyhow::Error> {
     let symbols = [
-        "BERAUSDT", "XRPUSDT", "POLUSDT", "BTCUSDT", "SOLUSDT", "DOGEUSDT", "BNBUSDT", "ARBUSDT",
-        "ZECUSDT", "ETHUSDT",
+        "BERAUSDT", "XRPUSDT", "POLUSDT", "BTCUSDT", "DOGEUSDT", "BNBUSDT", "ARBUSDT", "ZECUSDT",
     ];
 
     let streams = symbols
