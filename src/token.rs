@@ -224,7 +224,7 @@ pub fn calculate_price(
 
 pub enum HardcodedTokenPrice {
     /// If not available, use the previous price.
-    NotAvailable,
+    TemporaryUnavailable,
     Price(BigDecimal),
     /// Use this token's price instead
     Alias(AccountId),
@@ -244,7 +244,7 @@ pub fn get_hardcoded_price_usd(
         match token_id.as_str() {
             "bera.omft.near" => match get_binance_price("BERAUSDT") {
                 Some(price) => HardcodedTokenPrice::Price(price),
-                None => HardcodedTokenPrice::NotAvailable,
+                None => HardcodedTokenPrice::TemporaryUnavailable,
             },
             "gnosis.omft.near" => HardcodedTokenPrice::Alias(
                 "6b175474e89094c44da98b954eedeac495271d0f.factory.bridge.near"
@@ -253,11 +253,11 @@ pub fn get_hardcoded_price_usd(
             ),
             "xrp.omft.near" => match get_binance_price("XRPUSDT") {
                 Some(price) => HardcodedTokenPrice::Price(price),
-                None => HardcodedTokenPrice::NotAvailable,
+                None => HardcodedTokenPrice::TemporaryUnavailable,
             },
             "pol.omft.near" => match get_binance_price("POLUSDT") {
                 Some(price) => HardcodedTokenPrice::Price(price),
-                None => HardcodedTokenPrice::NotAvailable,
+                None => HardcodedTokenPrice::TemporaryUnavailable,
             },
             "btc.omft.near" => HardcodedTokenPrice::Alias(
                 "2260fac5e5542a773aa44fbcfedf7c193bc2c599.factory.bridge.near"
@@ -270,19 +270,19 @@ pub fn get_hardcoded_price_usd(
             "base.omft.near" => HardcodedTokenPrice::Alias("aurora".parse().unwrap()),
             "doge.omft.near" => match get_binance_price("DOGEUSDT") {
                 Some(price) => HardcodedTokenPrice::Price(price),
-                None => HardcodedTokenPrice::NotAvailable,
+                None => HardcodedTokenPrice::TemporaryUnavailable,
             },
             "bsc.omft.near" => match get_binance_price("BNBUSDT") {
                 Some(price) => HardcodedTokenPrice::Price(price),
-                None => HardcodedTokenPrice::NotAvailable,
+                None => HardcodedTokenPrice::TemporaryUnavailable,
             },
             "arb.omft.near" => match get_binance_price("ARBUSDT") {
                 Some(price) => HardcodedTokenPrice::Price(price),
-                None => HardcodedTokenPrice::NotAvailable,
+                None => HardcodedTokenPrice::TemporaryUnavailable,
             },
             "zec.omft.near" => match get_binance_price("ZECUSDT") {
                 Some(price) => HardcodedTokenPrice::Price(price),
-                None => HardcodedTokenPrice::NotAvailable,
+                None => HardcodedTokenPrice::TemporaryUnavailable,
             },
             "eth.omft.near" => HardcodedTokenPrice::Alias("aurora".parse().unwrap()),
             _ => match token_id.as_str().split_once('-') {
@@ -291,7 +291,7 @@ pub fn get_hardcoded_price_usd(
                         .map(FromPrimitive::from_f64)
                     {
                         Some(Some(price)) => HardcodedTokenPrice::Price(price),
-                        _ => HardcodedTokenPrice::NotAvailable,
+                        _ => HardcodedTokenPrice::TemporaryUnavailable,
                     }
                 }
                 Some(("eth", token_id)) => {
@@ -302,7 +302,7 @@ pub fn get_hardcoded_price_usd(
                     .map(FromPrimitive::from_f64)
                     {
                         Some(Some(price)) => HardcodedTokenPrice::Price(price),
-                        _ => HardcodedTokenPrice::NotAvailable,
+                        _ => HardcodedTokenPrice::TemporaryUnavailable,
                     }
                 }
                 Some(("pol", token_id)) => {
@@ -313,7 +313,7 @@ pub fn get_hardcoded_price_usd(
                     .map(FromPrimitive::from_f64)
                     {
                         Some(Some(price)) => HardcodedTokenPrice::Price(price),
-                        _ => HardcodedTokenPrice::NotAvailable,
+                        _ => HardcodedTokenPrice::TemporaryUnavailable,
                     }
                 }
                 Some(("bsc", token_id)) => {
@@ -321,7 +321,7 @@ pub fn get_hardcoded_price_usd(
                         .map(FromPrimitive::from_f64)
                     {
                         Some(Some(price)) => HardcodedTokenPrice::Price(price),
-                        _ => HardcodedTokenPrice::NotAvailable,
+                        _ => HardcodedTokenPrice::TemporaryUnavailable,
                     }
                 }
                 Some(("gnosis", token_id)) => {
@@ -332,7 +332,7 @@ pub fn get_hardcoded_price_usd(
                     .map(FromPrimitive::from_f64)
                     {
                         Some(Some(price)) => HardcodedTokenPrice::Price(price),
-                        _ => HardcodedTokenPrice::NotAvailable,
+                        _ => HardcodedTokenPrice::TemporaryUnavailable,
                     }
                 }
                 Some(("arb", token_id)) => {
@@ -343,7 +343,7 @@ pub fn get_hardcoded_price_usd(
                     .map(FromPrimitive::from_f64)
                     {
                         Some(Some(price)) => HardcodedTokenPrice::Price(price),
-                        _ => HardcodedTokenPrice::NotAvailable,
+                        _ => HardcodedTokenPrice::TemporaryUnavailable,
                     }
                 }
                 Some(("base", token_id)) => {
@@ -351,10 +351,10 @@ pub fn get_hardcoded_price_usd(
                         .map(FromPrimitive::from_f64)
                     {
                         Some(Some(price)) => HardcodedTokenPrice::Price(price),
-                        _ => HardcodedTokenPrice::NotAvailable,
+                        _ => HardcodedTokenPrice::TemporaryUnavailable,
                     }
                 }
-                _ => HardcodedTokenPrice::NotAvailable,
+                _ => HardcodedTokenPrice::TemporaryUnavailable,
             },
         }
     } else {
