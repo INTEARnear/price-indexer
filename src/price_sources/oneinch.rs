@@ -135,7 +135,6 @@ async fn update_oneinch_tokens(network: Network) -> Result<()> {
 }
 
 pub async fn subscribe_to_oneinch_updates() -> Result<()> {
-    let mut interval = tokio::time::interval(Duration::from_secs(30));
     let networks = [
         Network::Ethereum,
         Network::Polygon,
@@ -145,7 +144,6 @@ pub async fn subscribe_to_oneinch_updates() -> Result<()> {
         Network::Gnosis,
     ];
     loop {
-        interval.tick().await;
         for &network in &networks {
             if let Err(e) = update_oneinch_tokens(network).await {
                 log::error!(
@@ -153,6 +151,7 @@ pub async fn subscribe_to_oneinch_updates() -> Result<()> {
                     network.network_id_for_geckoterminal()
                 );
             }
+            tokio::time::sleep(Duration::from_secs(5)).await;
         }
     }
 }

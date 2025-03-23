@@ -115,11 +115,10 @@ async fn update_solana_tokens() -> Result<()> {
 }
 
 pub async fn subscribe_to_solana_updates() -> Result<()> {
-    let mut interval = tokio::time::interval(Duration::from_secs(5));
     loop {
-        interval.tick().await;
         if let Err(e) = update_solana_tokens().await {
             log::error!("Failed to update Solana tokens: {e}");
         }
+        tokio::time::sleep(Duration::from_secs(15)).await;
     }
 }
