@@ -29,7 +29,11 @@ pub fn get_binance_price(symbol: &str) -> Option<BigDecimal> {
     BINANCE_PRICES.read().get(symbol).cloned()
 }
 
-async fn connect_to_binance_ws(url: &str, symbols: &[String]) -> Result<(), anyhow::Error> {
+async fn connect_to_binance_ws(
+    url: &str,
+    symbols: &[String],
+    cancellation_token: CancellationToken,
+) -> Result<(), anyhow::Error> {
     let request = url.into_client_request()?;
     let (ws_stream, _) = connect_async(request).await?;
     let (mut write, mut read) = ws_stream.split();
@@ -43,27 +47,41 @@ async fn connect_to_binance_ws(url: &str, symbols: &[String]) -> Result<(), anyh
         .send(Message::Text(subscribe_msg.to_string().into()))
         .await?;
 
-    while let Some(msg) = read.next().await {
-        match msg {
-            Ok(Message::Text(text)) => {
-                if let Ok(data) = serde_json::from_str::<BinanceStreamData>(&text) {
-                    if let Ok(price) = data.close_price.parse() {
-                        BINANCE_PRICES.write().insert(data.symbol, price);
+    loop {
+        tokio::select! {
+            msg = read.next() => {
+                match msg {
+                    Some(Ok(Message::Text(text))) => {
+                        if let Ok(data) = serde_json::from_str::<BinanceStreamData>(&text) {
+                            if let Ok(price) = data.close_price.parse() {
+                                BINANCE_PRICES.write().insert(data.symbol, price);
+                            }
+                        }
                     }
+                    Some(Ok(Message::Ping(data))) => {
+                        write.send(Message::Pong(data)).await?;
+                    }
+                    Some(Err(e)) => {
+                        log::error!("Error in Binance WebSocket stream: {e}");
+                        return Err(e.into());
+                    }
+                    None => {
+                        log::info!("WebSocket connection closed by server");
+                        return Ok(());
+                    }
+                    _ => {}
                 }
             }
-            Ok(Message::Ping(data)) => {
-                write.send(Message::Pong(data)).await?;
+            _ = cancellation_token.cancelled() => {
+                log::info!("Closing Binance WebSocket connection due to cancellation");
+                // Send close frame and wait for it to be sent
+                if let Err(e) = write.send(Message::Close(None)).await {
+                    log::warn!("Failed to send close frame: {e}");
+                }
+                return Ok(());
             }
-            Err(e) => {
-                log::error!("Error in Binance WebSocket stream: {e}");
-                return Err(e.into());
-            }
-            _ => {}
         }
     }
-
-    Ok(())
 }
 
 pub async fn start_binance_ws(cancellation_token: CancellationToken) {
@@ -90,7 +108,7 @@ pub async fn start_binance_ws(cancellation_token: CancellationToken) {
 
         log::info!("Connecting to Binance WebSocket...");
 
-        match connect_to_binance_ws(&url, &symbols).await {
+        match connect_to_binance_ws(&url, &symbols, cancellation_token.clone()).await {
             Ok(_) => {
                 retry_delay = Duration::from_secs(1);
                 log::info!("WebSocket connection closed normally, reconnecting...");

@@ -9,6 +9,7 @@ mod tokens;
 mod utils;
 
 use std::convert::Infallible;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::SystemTime;
 use std::{
     collections::{HashMap, HashSet},
@@ -185,6 +186,7 @@ async fn main() -> Result<(), anyhow::Error> {
     let cancellation_token_clone = cancellation_token.clone();
     let mut i = 0;
     join_handles.push(tokio::spawn(async move {
+        let last_block_height = Arc::new(AtomicU64::new(0));
         RedisEventStream::<TradePoolChangeEvent>::new(
             create_redis_connection().await,
             TradePoolChangeEvent::ID,
@@ -194,26 +196,27 @@ async fn main() -> Result<(), anyhow::Error> {
             move |events| {
                 i += 1;
                 let tokens = Arc::clone(&tokens);
+                let recent_block_height = Arc::clone(&last_block_height);
                 async move {
                     let mut token_price_stream = RedisEventStream::<PriceTokenEvent>::new(
                         create_redis_connection().await,
                         PriceTokenEvent::ID,
                     );
-                    let Some(last_event) = events.last() else {
-                        return Ok(());
-                    };
-                    for event in events.iter() {
-                        if let Some(pool_data) = extract_pool_data(&event.pool) {
-                            process_pool_change(event, &pool_data, &tokens, &mut token_price_stream)
-                                .await;
-                        } else {
-                            log::warn!("Ratios can't be extracted from pool {}", event.pool_id);
+                    if let Some(last_event) = events.last() {
+                        recent_block_height.store(last_event.block_height, Ordering::Relaxed);
+                        for event in events.iter() {
+                            if let Some(pool_data) = extract_pool_data(&event.pool) {
+                                process_pool_change(event, &pool_data, &tokens, &mut token_price_stream)
+                                    .await;
+                            } else {
+                                log::warn!("Ratios can't be extracted from pool {}", event.pool_id);
+                            }
                         }
-                    }
 
-                    token_price_stream
-                        .flush_events(last_event.block_height, MAX_REDIS_EVENT_BUFFER_SIZE)
-                        .await?;
+                        token_price_stream
+                            .flush_events(last_event.block_height, MAX_REDIS_EVENT_BUFFER_SIZE)
+                            .await?;
+                    }
 
                     let mut tokens_mut = tokens.read().await.clone();
                     tokens_mut.recalculate_prices();
@@ -222,7 +225,7 @@ async fn main() -> Result<(), anyhow::Error> {
                             continue;
                         }
 
-                        let update_interval_blocks = match (token.volume_usd_24h, last_event.block_height - token.created_at) {
+                        let update_interval_blocks = match (token.volume_usd_24h, recent_block_height.load(Ordering::Relaxed) - token.created_at) {
                             (_, ..1_000) => 1,
                             (_, ..10_000) => 10,
                             (_, ..100_000) => 30,
