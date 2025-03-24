@@ -107,7 +107,7 @@ impl Tokens {
             }
         }
         log::info!("Trying to add token {token_id}");
-        match get_token_metadata(token_id.clone()).await {
+        match get_token_metadata(token_id.clone(), Some(current_block_height + 1)).await {
             Ok(metadata) => {
                 self.tokens.insert(
                     token_id.clone(),
@@ -208,7 +208,9 @@ impl Tokens {
                         * 2f64;
             } else if let Some(token) = self.tokens.get_mut(&token_id) {
                 token.main_pool = None;
-            } else if let Ok(metadata) = get_token_metadata(token_id.clone()).await {
+            } else if let Ok(metadata) =
+                get_token_metadata(token_id.clone(), Some(current_block_height)).await
+            {
                 self.tokens.insert(
                     token_id.clone(),
                     Token {

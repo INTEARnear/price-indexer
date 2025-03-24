@@ -9,13 +9,11 @@ mod tokens;
 mod utils;
 
 use std::convert::Infallible;
-use std::fmt::Debug;
 use std::time::SystemTime;
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{HashMap, HashSet},
     fs::File,
     io::{BufRead, BufReader},
-    str::FromStr,
     sync::Arc,
 };
 
@@ -27,7 +25,6 @@ use intear_events::events::{
     newcontract::nep141::NewContractNep141Event, price::price_token::PriceTokenEvent,
     trade::trade_pool_change::TradePoolChangeEvent,
 };
-use itertools::Itertools;
 use lazy_static::lazy_static;
 use near_jsonrpc_client::{
     errors::{JsonRpcError, JsonRpcServerError},
@@ -35,7 +32,6 @@ use near_jsonrpc_client::{
 };
 use pool_data::{extract_pool_data, PoolData};
 use redis::{aio::ConnectionManager, Client};
-use serde::Deserialize;
 use supply::{get_circulating_supply, get_total_supply};
 use token::{get_reputation, get_slug, get_socials, is_spam, TokenScore};
 use token_metadata::{get_token_metadata, MetadataError};
@@ -60,19 +56,6 @@ pub fn get_reqwest_client() -> &'static reqwest::Client {
 
 const SPAM_TOKENS_FILE: &str = "spam_tokens.txt";
 const MAX_REDIS_EVENT_BUFFER_SIZE: usize = 1_000;
-
-#[derive(Debug, Deserialize)]
-struct JsonSerializedPrices {
-    prices_only: String,
-    ref_compatibility_format: String,
-    super_precise: String,
-
-    prices_only_with_hardcoded: String,
-    ref_compatibility_format_with_hardcoded: String,
-    super_precise_with_hardcoded: String,
-
-    full_data: String,
-}
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
@@ -99,7 +82,7 @@ async fn main() -> Result<(), anyhow::Error> {
             .into_iter()
             .map(|(k, v)| (k.to_owned(), v.to_owned()))
             .collect();
-        match get_token_metadata(account_id.clone()).await {
+        match get_token_metadata(account_id.clone(), None).await {
             Ok(metadata) => token.metadata = metadata,
             Err(MetadataError::RpcQueryError(JsonRpcError::ServerError(
                 JsonRpcServerError::HandlerError(RpcQueryError::UnknownAccount { .. }),
@@ -128,7 +111,6 @@ async fn main() -> Result<(), anyhow::Error> {
     }
     log::info!("Pools updated");
 
-    let json_serialized = Arc::new(RwLock::new(None));
     let cancellation_token = CancellationToken::new();
 
     let mut join_handles = Vec::new();
@@ -137,10 +119,7 @@ async fn main() -> Result<(), anyhow::Error> {
     tokio::spawn(price_sources::jupiter::subscribe_to_solana_updates());
     tokio::spawn(price_sources::oneinch::subscribe_to_oneinch_updates());
 
-    join_handles.push(tokio::spawn(launch_http_server(
-        Arc::clone(&tokens),
-        Arc::clone(&json_serialized),
-    )));
+    join_handles.push(tokio::spawn(launch_http_server(Arc::clone(&tokens))));
 
     let tokens_clone = Arc::clone(&tokens);
     let cancellation_token_clone = cancellation_token.clone();
@@ -193,7 +172,6 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let cancellation_token_clone = cancellation_token.clone();
     let mut i = 0;
-    let json_serialized_clone = Arc::clone(&json_serialized);
     join_handles.push(tokio::spawn(async move {
         RedisEventStream::<TradePoolChangeEvent>::new(
             create_redis_connection().await,
@@ -204,7 +182,6 @@ async fn main() -> Result<(), anyhow::Error> {
             move |events| {
                 i += 1;
                 let tokens = Arc::clone(&tokens);
-                let json_serialized = Arc::clone(&json_serialized_clone);
                 async move {
                     let mut token_price_stream = RedisEventStream::<PriceTokenEvent>::new(
                         create_redis_connection().await,
@@ -309,7 +286,7 @@ async fn main() -> Result<(), anyhow::Error> {
                         if token.deleted {
                             continue;
                         }
-                        if let Ok(token_metadata) = get_token_metadata(token_id.clone()).await {
+                        if let Ok(token_metadata) = get_token_metadata(token_id.clone(), None).await {
                             if token.reference.is_null() {
                                 if let Some(reference) = token_metadata.reference.as_ref() {
                                     token.reference = get_reference(reference.clone()).await.unwrap_or_default();
@@ -332,7 +309,6 @@ async fn main() -> Result<(), anyhow::Error> {
                             }
                         }
                     }
-
 
                     if !spam_pending.is_empty() {
                         let mut file = OpenOptions::new()
@@ -361,105 +337,6 @@ async fn main() -> Result<(), anyhow::Error> {
                         }
                         tokens_mut.spam_tokens.extend(spam_pending);
                     }
-
-                    let mut prices_only = HashMap::new();
-                    let mut ref_compatibility_format = HashMap::new();
-                    let mut super_precise = HashMap::new();
-
-                    let mut prices_only_with_hardcoded = HashMap::new();
-                    let mut ref_compatibility_format_with_hardcoded = HashMap::new();
-                    let mut super_precise_with_hardcoded = HashMap::new();
-
-                    for (token_id, token) in tokens_mut.tokens.iter() {
-                        if token.deleted {
-                            continue;
-                        }
-                        if let Some(token_metadata) = token_metadatas.get(token_id) {
-                            let price_usd = &token.price_usd;
-                            let price_f64 = f64::from_str(&price_usd.to_string()).unwrap();
-                            let price_ref_scale = price_usd.with_scale(12);
-
-                            prices_only.insert(token_id.clone(), price_f64);
-                            ref_compatibility_format.insert(
-                                token_id.clone(),
-                                serde_json::json!({
-                                    "price": price_ref_scale.to_string(),
-                                    "symbol": token.metadata.symbol,
-                                    "decimal": token_metadata.decimals,
-                                }),
-                            );
-                            super_precise.insert(token_id.clone(), price_usd.to_string());
-
-                            let price_usd_hardcoded = &token.price_usd_hardcoded;
-                            let price_f64_hardcoded =
-                                f64::from_str(&price_usd_hardcoded.to_string()).unwrap();
-                            let price_ref_scale_hardcoded = price_usd_hardcoded.with_scale(12);
-                            prices_only_with_hardcoded.insert(token_id.clone(), price_f64_hardcoded);
-                            ref_compatibility_format_with_hardcoded.insert(
-                                token_id.clone(),
-                                serde_json::json!({
-                                    "price": price_ref_scale_hardcoded.to_string(),
-                                    "symbol": token.metadata.symbol,
-                                    "decimal": token_metadata.decimals,
-                                }),
-                            );
-                            super_precise_with_hardcoded
-                                .insert(token_id.clone(), price_usd_hardcoded.to_string());
-
-                            let update_interval_blocks = match (token.volume_usd_24h, last_event.block_height - token.created_at) {
-                                (_, ..1_000) => 1,
-                                (_, ..10_000) => 10,
-                                (_, ..100_000) => 30,
-                                (..1_000.0, _) => 10000,
-                                (..10_000.0, _) => 450,
-                                (..100_000.0, _) => 30,
-                                (..1_000_000.0, _) => 15,
-                                (1_000_000.0.., _) => 5,
-                                _ => BlockHeightDelta::MAX,
-                            };
-                            if i % update_interval_blocks != 0 {
-                                continue;
-                            }
-
-                            if std::env::var("NO_EVENTS").is_err() {
-                                token_price_stream.add_event(PriceTokenEvent {
-                                    token: token_id.clone(),
-                                    price_usd: token.price_usd_raw.clone(),
-                                    timestamp_nanosec: SystemTime::now()
-                                        .duration_since(SystemTime::UNIX_EPOCH)
-                                        .unwrap()
-                                        .as_nanos(),
-                                });
-                            }
-                        }
-                    }
-
-                    token_price_stream
-                        .flush_events(last_event.block_height, MAX_REDIS_EVENT_BUFFER_SIZE)
-                        .await?;
-
-                    let full_data = serde_json::to_string(&tokens_mut.tokens).unwrap();
-                    let ref_compatibility_format = ref_compatibility_format
-                        .into_iter()
-                        .sorted_by_key(|(token_id, _)| token_id.to_string())
-                        .collect::<BTreeMap<_, _>>();
-                    *json_serialized.write().await = Some(JsonSerializedPrices {
-                        prices_only: serde_json::to_string(&prices_only).unwrap(),
-                        ref_compatibility_format: serde_json::to_string(&ref_compatibility_format).unwrap(),
-                        super_precise: serde_json::to_string(&super_precise).unwrap(),
-
-                        prices_only_with_hardcoded: serde_json::to_string(&prices_only_with_hardcoded)
-                            .unwrap(),
-                        ref_compatibility_format_with_hardcoded: serde_json::to_string(
-                            &ref_compatibility_format_with_hardcoded,
-                        )
-                        .unwrap(),
-                        super_precise_with_hardcoded: serde_json::to_string(&super_precise_with_hardcoded)
-                            .unwrap(),
-
-                        full_data,
-                    });
-                    log::info!("Updated all prices");
 
                     *tokens.write().await = tokens_mut;
                     save_tokens(&*tokens.read().await).await;

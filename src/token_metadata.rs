@@ -1,6 +1,6 @@
 use cached::proc_macro::cached;
 use inindexer::near_indexer_primitives::{
-    types::{AccountId, BlockReference, Finality},
+    types::{AccountId, BlockHeight, BlockId, BlockReference, Finality},
     views::QueryRequest,
 };
 use near_jsonrpc_client::{
@@ -16,10 +16,32 @@ use crate::utils::get_rpc_url;
 #[cached(time = 3600, result = true)]
 pub async fn get_token_metadata(
     token_id: AccountId,
+    block_height: Option<BlockHeight>,
+) -> Result<TokenMetadataWithoutIcon, MetadataError> {
+    if let Some(block_height) = block_height {
+        if let Ok(metadata) =
+            _get_token_metadata_internal(token_id.clone(), Some(block_height)).await
+        {
+            Ok(metadata)
+        } else {
+            _get_token_metadata_internal(token_id, None).await
+        }
+    } else {
+        _get_token_metadata_internal(token_id, None).await
+    }
+}
+
+async fn _get_token_metadata_internal(
+    token_id: AccountId,
+    block_height: Option<BlockHeight>,
 ) -> Result<TokenMetadataWithoutIcon, MetadataError> {
     let client = JsonRpcClient::connect(get_rpc_url());
     let request = methods::query::RpcQueryRequest {
-        block_reference: BlockReference::Finality(Finality::None),
+        block_reference: if let Some(block_height) = block_height {
+            BlockReference::BlockId(BlockId::Height(block_height))
+        } else {
+            BlockReference::Finality(Finality::None)
+        },
         request: QueryRequest::CallFunction {
             account_id: token_id,
             method_name: "ft_metadata".into(),
