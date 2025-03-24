@@ -48,6 +48,7 @@ use tokio_util::sync::CancellationToken;
 lazy_static! {
     static ref CLIENT: reqwest::Client = reqwest::Client::builder()
         .user_agent("Intear Price Indexer")
+        .timeout(tokio::time::Duration::from_secs(10))
         .build()
         .expect("Failed to create reqwest client");
 }
@@ -202,11 +203,12 @@ async fn main() -> Result<(), anyhow::Error> {
                         create_redis_connection().await,
                         PriceTokenEvent::ID,
                     );
+                    let mut tokens_mut = tokens.read().await.clone();
                     if let Some(last_event) = events.last() {
                         recent_block_height.store(last_event.block_height, Ordering::Relaxed);
                         for event in events.iter() {
                             if let Some(pool_data) = extract_pool_data(&event.pool) {
-                                process_pool_change(event, &pool_data, &tokens, &mut token_price_stream)
+                                process_pool_change(event, &pool_data, &mut tokens_mut, &mut token_price_stream)
                                     .await;
                             } else {
                                 log::warn!("Ratios can't be extracted from pool {}", event.pool_id);
@@ -218,7 +220,6 @@ async fn main() -> Result<(), anyhow::Error> {
                             .await?;
                     }
 
-                    let mut tokens_mut = tokens.read().await.clone();
                     tokens_mut.recalculate_prices();
                     for (token_id, token) in tokens_mut.tokens.iter_mut() {
                         if token.deleted {
@@ -432,12 +433,10 @@ async fn save_tokens(tokens: &Tokens) {
 async fn process_pool_change(
     event: &TradePoolChangeEvent,
     pool_data: &PoolData,
-    tokens: &Arc<RwLock<Tokens>>,
+    tokens: &mut Tokens,
     token_price_stream: &mut RedisEventStream<PriceTokenEvent>,
 ) {
     tokens
-        .write()
-        .await
         .update_pool(
             &event.pool_id,
             event.pool.clone(),
@@ -446,10 +445,9 @@ async fn process_pool_change(
         )
         .await;
 
-    let token_read = tokens.read().await;
     if std::env::var("NO_EVENTS").is_err() {
         for token_id in [&pool_data.tokens.0, &pool_data.tokens.1] {
-            if let Some(token) = token_read.tokens.get(token_id) {
+            if let Some(token) = tokens.tokens.get(token_id) {
                 let token_price_event = PriceTokenEvent {
                     token: token_id.clone(),
                     price_usd: token.price_usd_raw.clone(),
