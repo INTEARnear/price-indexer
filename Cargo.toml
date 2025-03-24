@@ -7,7 +7,7 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 tokio = { version = "1.40.0", features = ["macros", "rt-multi-thread"] }
 dotenvy = { version = "0.15.7" }
-itertools = "0.13.0"
+itertools = "0.14.0"
 simple_logger = { version = "5.0.0" }
 log = "0.4.21"
 anyhow = "1.0.82"
@@ -15,7 +15,7 @@ serde = { version = "1.0.209", features = ["derive"] }
 serde_json = { version = "1.0.127" }
 chrono = { version = "0.4.38" }
 async-trait = "0.1.80"
-inindexer = { git = "https://github.com/INTEARnear/inindexer" } # Replace with near-utils when moved to a separate crate
+inindexer = "2.0.0"
 inevents-redis = { git = "https://github.com/INTEARnear/inevents" }
 intear-events = { git = "https://github.com/INTEARnear/intear-events" }
 redis = { version = "0.25.3", features = [
@@ -23,9 +23,9 @@ redis = { version = "0.25.3", features = [
     "connection-manager",
 ] }
 sqlx = { version = "0.8.1", features = ["bigdecimal"] }
-near-jsonrpc-client = "0.10.1"
-near-jsonrpc-primitives = "0.23.0"
-cached = { version = "0.52.0", features = [
+near-jsonrpc-client = "0.15.1"
+near-jsonrpc-primitives = "0.28.0"
+cached = { version = "0.55.1", features = [
     "async",
     "async_tokio_rt_multi_thread",
     "disk_store",
