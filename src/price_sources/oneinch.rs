@@ -9,6 +9,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio_util::sync::CancellationToken;
 
 const GECKOTERMINAL_BASE_URL: &str = "https://api.geckoterminal.com/api/v2";
 
@@ -134,7 +135,7 @@ async fn update_oneinch_tokens(network: Network) -> Result<()> {
     Ok(())
 }
 
-pub async fn subscribe_to_oneinch_updates() -> Result<()> {
+pub async fn subscribe_to_oneinch_updates(cancellation_token: CancellationToken) -> Result<()> {
     let networks = [
         Network::Ethereum,
         Network::Polygon,
@@ -144,14 +145,28 @@ pub async fn subscribe_to_oneinch_updates() -> Result<()> {
         Network::Gnosis,
     ];
     loop {
+        if cancellation_token.is_cancelled() {
+            break;
+        }
+
         for &network in &networks {
+            if cancellation_token.is_cancelled() {
+                break;
+            }
+
             if let Err(e) = update_oneinch_tokens(network).await {
                 log::error!(
                     "Failed to update 1inch tokens for {}: {e}",
                     network.network_id_for_geckoterminal()
                 );
             }
-            tokio::time::sleep(Duration::from_secs(5)).await;
+
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_secs(5)) => {}
+                _ = cancellation_token.cancelled() => break,
+            }
         }
     }
+
+    Ok(())
 }

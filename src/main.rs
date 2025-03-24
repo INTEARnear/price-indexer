@@ -115,9 +115,30 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let mut join_handles = Vec::new();
 
-    tokio::spawn(price_sources::binance::start_binance_ws());
-    tokio::spawn(price_sources::jupiter::subscribe_to_solana_updates());
-    tokio::spawn(price_sources::oneinch::subscribe_to_oneinch_updates());
+    let cancellation_token_clone = cancellation_token.clone();
+    join_handles.push(tokio::spawn(async move {
+        if let Err(e) = price_sources::binance::start_binance_ws(cancellation_token_clone).await {
+            log::error!("Binance WebSocket error: {e}");
+        }
+    }));
+
+    let cancellation_token_clone = cancellation_token.clone();
+    join_handles.push(tokio::spawn(async move {
+        if let Err(e) =
+            price_sources::jupiter::subscribe_to_solana_updates(cancellation_token_clone).await
+        {
+            log::error!("Solana updates error: {e}");
+        }
+    }));
+
+    let cancellation_token_clone = cancellation_token.clone();
+    join_handles.push(tokio::spawn(async move {
+        if let Err(e) =
+            price_sources::oneinch::subscribe_to_oneinch_updates(cancellation_token_clone).await
+        {
+            log::error!("1inch updates error: {e}");
+        }
+    }));
 
     join_handles.push(tokio::spawn(launch_http_server(Arc::clone(&tokens))));
 

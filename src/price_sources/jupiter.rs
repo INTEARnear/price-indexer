@@ -6,6 +6,7 @@ use sha3::{Digest, Keccak256};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio_util::sync::CancellationToken;
 
 use crate::get_reqwest_client;
 use crate::utils::{
@@ -114,11 +115,21 @@ async fn update_solana_tokens() -> Result<()> {
     Ok(())
 }
 
-pub async fn subscribe_to_solana_updates() -> Result<()> {
+pub async fn subscribe_to_solana_updates(cancellation_token: CancellationToken) -> Result<()> {
     loop {
+        if cancellation_token.is_cancelled() {
+            break;
+        }
+
         if let Err(e) = update_solana_tokens().await {
             log::error!("Failed to update Solana tokens: {e}");
         }
-        tokio::time::sleep(Duration::from_secs(15)).await;
+
+        tokio::select! {
+            _ = tokio::time::sleep(Duration::from_secs(15)) => {}
+            _ = cancellation_token.cancelled() => break,
+        }
     }
+
+    Ok(())
 }

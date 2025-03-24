@@ -10,6 +10,7 @@ use tokio_tungstenite::{
     connect_async,
     tungstenite::{client::IntoClientRequest, Message},
 };
+use tokio_util::sync::CancellationToken;
 
 lazy_static! {
     static ref BINANCE_PRICES: Arc<RwLock<HashMap<String, BigDecimal>>> =
@@ -65,7 +66,7 @@ async fn connect_to_binance_ws(url: &str, symbols: &[String]) -> Result<(), anyh
     Ok(())
 }
 
-pub async fn start_binance_ws() -> Result<(), anyhow::Error> {
+pub async fn start_binance_ws(cancellation_token: CancellationToken) -> Result<(), anyhow::Error> {
     let symbols = [
         "BERAUSDT", "XRPUSDT", "POLUSDT", "BTCUSDT", "DOGEUSDT", "BNBUSDT", "ARBUSDT", "ZECUSDT",
     ];
@@ -83,6 +84,10 @@ pub async fn start_binance_ws() -> Result<(), anyhow::Error> {
     let max_delay = Duration::from_secs(300);
 
     loop {
+        if cancellation_token.is_cancelled() {
+            break;
+        }
+
         log::info!("Connecting to Binance WebSocket...");
 
         match connect_to_binance_ws(&url, &symbols).await {
@@ -96,7 +101,12 @@ pub async fn start_binance_ws() -> Result<(), anyhow::Error> {
             }
         }
 
-        tokio::time::sleep(retry_delay).await;
+        tokio::select! {
+            _ = tokio::time::sleep(retry_delay) => {}
+            _ = cancellation_token.cancelled() => break,
+        }
         retry_delay = std::cmp::min(retry_delay * 2, max_delay);
     }
+
+    Ok(())
 }
