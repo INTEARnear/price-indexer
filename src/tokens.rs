@@ -6,6 +6,7 @@ use std::{
 };
 
 use cached::proc_macro::{cached, io_cached};
+use chrono::{DateTime, Utc};
 use inindexer::near_indexer_primitives::types::{AccountId, Balance, BlockHeight};
 use inindexer::near_utils::dec_format;
 use intear_events::events::trade::trade_pool_change::PoolType;
@@ -36,8 +37,10 @@ pub struct Tokens {
     pub pools: HashMap<String, (PoolType, PoolData)>,
     #[serde(default)]
     pub spam_tokens: HashSet<AccountId>,
+    #[serde(default)]
+    pub last_saved: DateTime<Utc>,
     #[serde(skip)]
-    last_checked_metadata: HashMap<AccountId, Instant>,
+    pub last_checked_metadata: HashMap<AccountId, Instant>,
 }
 
 fn create_routes_to_usd() -> HashMap<AccountId, String> {
@@ -54,6 +57,7 @@ impl Tokens {
             tokens: HashMap::new(),
             pools: HashMap::new(),
             spam_tokens: HashSet::new(),
+            last_saved: Utc::now(),
             last_checked_metadata: HashMap::new(),
         }
     }

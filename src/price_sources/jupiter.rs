@@ -115,7 +115,7 @@ async fn update_solana_tokens() -> Result<()> {
     Ok(())
 }
 
-pub async fn subscribe_to_solana_updates(cancellation_token: CancellationToken) -> Result<()> {
+pub async fn subscribe_to_solana_updates(cancellation_token: CancellationToken) {
     loop {
         if cancellation_token.is_cancelled() {
             break;
@@ -130,6 +130,4 @@ pub async fn subscribe_to_solana_updates(cancellation_token: CancellationToken) 
             _ = cancellation_token.cancelled() => break,
         }
     }
-
-    Ok(())
 }

@@ -66,7 +66,7 @@ async fn connect_to_binance_ws(url: &str, symbols: &[String]) -> Result<(), anyh
     Ok(())
 }
 
-pub async fn start_binance_ws(cancellation_token: CancellationToken) -> Result<(), anyhow::Error> {
+pub async fn start_binance_ws(cancellation_token: CancellationToken) {
     let symbols = [
         "BERAUSDT", "XRPUSDT", "POLUSDT", "BTCUSDT", "DOGEUSDT", "BNBUSDT", "ARBUSDT", "ZECUSDT",
     ];
@@ -107,6 +107,4 @@ pub async fn start_binance_ws(cancellation_token: CancellationToken) -> Result<(
         }
         retry_delay = std::cmp::min(retry_delay * 2, max_delay);
     }
-
-    Ok(())
 }

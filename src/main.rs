@@ -18,6 +18,7 @@ use std::{
 };
 
 use cached::proc_macro::cached;
+use chrono::Utc;
 use http_server::launch_http_server;
 use inevents_redis::RedisEventStream;
 use inindexer::near_indexer_primitives::types::{AccountId, BlockHeightDelta};
@@ -116,29 +117,19 @@ async fn main() -> Result<(), anyhow::Error> {
     let mut join_handles = Vec::new();
 
     let cancellation_token_clone = cancellation_token.clone();
-    join_handles.push(tokio::spawn(async move {
-        if let Err(e) = price_sources::binance::start_binance_ws(cancellation_token_clone).await {
-            log::error!("Binance WebSocket error: {e}");
-        }
-    }));
+    join_handles.push(tokio::spawn(price_sources::binance::start_binance_ws(
+        cancellation_token_clone,
+    )));
 
     let cancellation_token_clone = cancellation_token.clone();
-    join_handles.push(tokio::spawn(async move {
-        if let Err(e) =
-            price_sources::jupiter::subscribe_to_solana_updates(cancellation_token_clone).await
-        {
-            log::error!("Solana updates error: {e}");
-        }
-    }));
+    join_handles.push(tokio::spawn(
+        price_sources::jupiter::subscribe_to_solana_updates(cancellation_token_clone),
+    ));
 
     let cancellation_token_clone = cancellation_token.clone();
-    join_handles.push(tokio::spawn(async move {
-        if let Err(e) =
-            price_sources::oneinch::subscribe_to_oneinch_updates(cancellation_token_clone).await
-        {
-            log::error!("1inch updates error: {e}");
-        }
-    }));
+    join_handles.push(tokio::spawn(
+        price_sources::oneinch::subscribe_to_oneinch_updates(cancellation_token_clone),
+    ));
 
     join_handles.push(tokio::spawn(launch_http_server(Arc::clone(&tokens))));
 
@@ -411,7 +402,11 @@ async fn load_tokens() -> Result<Tokens, anyhow::Error> {
 }
 
 async fn save_tokens(tokens: &Tokens) {
-    let tokens = serde_json::to_string(tokens).unwrap();
+    let tokens = Tokens {
+        last_saved: Utc::now(),
+        ..tokens.clone()
+    };
+    let tokens = serde_json::to_string(&tokens).unwrap();
     fs::write("tokens.json", tokens)
         .await
         .expect("Failed to save tokens");

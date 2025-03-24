@@ -135,7 +135,7 @@ async fn update_oneinch_tokens(network: Network) -> Result<()> {
     Ok(())
 }
 
-pub async fn subscribe_to_oneinch_updates(cancellation_token: CancellationToken) -> Result<()> {
+pub async fn subscribe_to_oneinch_updates(cancellation_token: CancellationToken) {
     let networks = [
         Network::Ethereum,
         Network::Polygon,
@@ -167,6 +167,4 @@ pub async fn subscribe_to_oneinch_updates(cancellation_token: CancellationToken)
             }
         }
     }
-
-    Ok(())
 }
