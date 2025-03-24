@@ -9,7 +9,7 @@ mod tokens;
 mod utils;
 
 use std::convert::Infallible;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::SystemTime;
 use std::{
     collections::{HashMap, HashSet},
@@ -405,14 +405,28 @@ async fn load_tokens() -> Result<Tokens, anyhow::Error> {
 }
 
 async fn save_tokens(tokens: &Tokens) {
+    lazy_static! {
+        static ref IS_SAVING: AtomicBool = AtomicBool::new(false);
+    }
     let tokens = Tokens {
         last_saved: Utc::now(),
         ..tokens.clone()
     };
-    let tokens = serde_json::to_string(&tokens).unwrap();
-    fs::write("tokens.json", tokens)
-        .await
-        .expect("Failed to save tokens");
+
+    if IS_SAVING
+        .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
+        .is_ok()
+    {
+        let tokens = serde_json::to_string(&tokens).unwrap();
+        fs::write("tokens.json", tokens)
+            .await
+            .expect("Failed to save tokens");
+        IS_SAVING.store(false, Ordering::Relaxed);
+    } else {
+        log::warn!(
+            "Trying to save while saving a previous version. TODO rewrite to use a real database"
+        );
+    }
 }
 
 async fn process_pool_change(
