@@ -69,7 +69,7 @@ impl Tokens {
         for (pool_id, (_pool, pool_data)) in &self.pools {
             if pool_data.tokens.0 == *token_id {
                 let liquidity = pool_data.liquidity.0.clone();
-                if liquidity > max_liquidity
+                if liquidity >= max_liquidity
                     && (self.routes_to_usd.contains_key(&pool_data.tokens.1)
                         || pool_data.tokens.1 == network::get_usd_token())
                 {

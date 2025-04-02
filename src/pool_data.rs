@@ -90,5 +90,38 @@ pub fn extract_pool_data(pool: &PoolType) -> Option<PoolData> {
                 liquidity: (amount0, amount1),
             })
         }
+        PoolType::Veax(pool) => {
+            let mut non_zero_prices: Vec<f64> = pool
+                .sqrt_prices
+                .iter()
+                .filter(|&&price| price != 0.0)
+                .copied()
+                .collect();
+
+            if non_zero_prices.is_empty() {
+                return None;
+            }
+
+            // Calculate median, to get the fairest / most common price among all fee tiers
+            non_zero_prices.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            let median_idx = non_zero_prices.len() / 2;
+            let median = if non_zero_prices.len() % 2 == 0 {
+                (non_zero_prices[median_idx - 1] + non_zero_prices[median_idx]) / 2.0
+            } else {
+                non_zero_prices[median_idx]
+            };
+
+            let token1_in_1_token0 = BigDecimal::from_str(&(median * median).to_string()).ok()?;
+            let token0_in_1_token1 =
+                BigDecimal::from_str(&(1.0 / (median * median)).to_string()).ok()?;
+
+            Some(PoolData {
+                tokens: pool.pool.clone(),
+                ratios: (token0_in_1_token1, token1_in_1_token0),
+                // in DCL pools, you can't just count all liquidity, since someone can set
+                // $10000000000 in very low / very high range and it's effectively not usable
+                liquidity: (0.into(), 0.into()),
+            })
+        }
     }
 }
