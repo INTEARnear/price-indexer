@@ -102,7 +102,9 @@ pub struct AccountTokenBalances {
 }
 
 #[cached(time = 30, result = true)]
-pub async fn get_user_token_balances(account_id: AccountId) -> anyhow::Result<AccountTokenBalances> {
+pub async fn get_user_token_balances(
+    account_id: AccountId,
+) -> anyhow::Result<AccountTokenBalances> {
     let client = get_reqwest_client();
     let url = format!("https://api.fastnear.com/v1/account/{account_id}/ft");
     let response = client.get(&url).send().await?;

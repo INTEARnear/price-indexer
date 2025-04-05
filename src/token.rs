@@ -63,6 +63,8 @@ pub struct Token {
     pub price_usd: BigDecimal,
     #[serde(with = "serde_bigdecimal", default)]
     pub price_usd_hardcoded: BigDecimal,
+    #[serde(with = "serde_bigdecimal", default)]
+    pub price_usd_24h_ago: BigDecimal,
     /// 'Main pool' is a pool that leads to a token that can be farther converted
     /// into [`USD_TOKEN`] through one of [`USD_ROUTES`].
     pub main_pool: Option<String>,

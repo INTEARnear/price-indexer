@@ -120,6 +120,7 @@ impl Tokens {
                         price_usd_raw: BigDecimal::from(0),
                         price_usd: BigDecimal::from(0),
                         price_usd_hardcoded: BigDecimal::from(0),
+                        price_usd_24h_ago: BigDecimal::from(0),
                         main_pool: None,
                         total_supply: get_total_supply(token_id).await.unwrap_or_default(),
                         circulating_supply: get_circulating_supply(token_id, false)
@@ -222,6 +223,7 @@ impl Tokens {
                         price_usd_raw: BigDecimal::from(0),
                         price_usd: BigDecimal::from(0),
                         price_usd_hardcoded: BigDecimal::from(0),
+                        price_usd_24h_ago: BigDecimal::from(0),
                         main_pool: None,
                         total_supply: get_total_supply(&token_id).await.unwrap_or_default(),
                         circulating_supply: get_circulating_supply(&token_id, false)

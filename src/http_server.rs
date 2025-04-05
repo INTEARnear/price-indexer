@@ -527,6 +527,7 @@ fn serialize_with_icon(token: &Token) -> serde_json::Value {
         "price_usd_raw": token.price_usd_raw.to_string(),
         "price_usd": token.price_usd.to_string(),
         "price_usd_hardcoded": token.price_usd_hardcoded.to_string(),
+        "price_usd_24h_ago": token.price_usd_24h_ago.to_string(),
         "main_pool": token.main_pool,
         "metadata": {
             "name": token.metadata.name,

@@ -34,6 +34,8 @@ use near_jsonrpc_client::{
 };
 use pool_data::{extract_pool_data, PoolData};
 use redis::{aio::ConnectionManager, Client};
+use sqlx::types::BigDecimal;
+use std::str::FromStr;
 use supply::{get_circulating_supply, get_total_supply};
 use token::{get_reputation, get_slug, get_socials, is_spam, TokenScore};
 use token_metadata::{get_token_metadata, MetadataError};
@@ -230,8 +232,9 @@ async fn main() -> Result<(), anyhow::Error> {
                             (_, ..1_000) => 1,
                             (_, ..10_000) => 10,
                             (_, ..100_000) => 30,
-                            (..1_000.0, _) => 10000,
-                            (..10_000.0, _) => 450,
+                            (..100.0, _) => 1000,
+                            (..1_000.0, _) => 200,
+                            (..10_000.0, _) => 100,
                             (10_000.0.., _) => 60,
                             _ => BlockHeightDelta::MAX,
                         };
@@ -247,11 +250,13 @@ async fn main() -> Result<(), anyhow::Error> {
                             circulating_supply_result,
                             circulating_supply_excluding_team_result,
                             volume_24h_result,
+                            price_24h_ago_result,
                         ) = tokio::join!(
                             get_total_supply(&token_id),
                             get_circulating_supply(&token_id, false),
                             get_circulating_supply(&token_id, true),
                             get_volume_24h(token_id.clone()),
+                            get_price_24h_ago(token_id.clone()),
                         );
 
                         match total_supply_result {
@@ -290,6 +295,15 @@ async fn main() -> Result<(), anyhow::Error> {
                             Err(e) => {
                                 if reputation >= TokenScore::NotFake {
                                     log::warn!("Failed to get 24h volume for {token_id}: {e:?}")
+                                }
+                            }
+                        }
+
+                        match price_24h_ago_result {
+                            Ok(price_24h_ago) => token.price_usd_24h_ago = price_24h_ago,
+                            Err(e) => {
+                                if reputation >= TokenScore::NotFake {
+                                    log::warn!("Failed to get 24h ago price for {token_id}: {e:?}")
                                 }
                             }
                         }
@@ -481,4 +495,25 @@ async fn get_volume_24h(token_id: AccountId) -> Result<f64, anyhow::Error> {
         .await?
         .json::<f64>()
         .await?)
+}
+
+#[cached(time = 300, result = true)]
+async fn get_price_24h_ago(token_id: AccountId) -> Result<BigDecimal, anyhow::Error> {
+    let timestamp_nanosec = (SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        - 24 * 60 * 60)
+        * 1_000_000_000;
+
+    let response = get_reqwest_client()
+        .get(format!(
+            "https://events-v3.intear.tech/v3/price_token/price_at_time?token={token_id}&timestamp_nanosec={timestamp_nanosec}"
+        ))
+        .send()
+        .await?
+        .json::<serde_json::Value>()
+        .await?;
+
+    Ok(BigDecimal::from_str(&response["price_usd"].to_string())?)
 }
