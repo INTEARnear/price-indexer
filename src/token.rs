@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::types::BigDecimal;
 
 use crate::price_sources::oneinch::{get_oneinch_price, Network};
-use crate::token_metadata::TokenMetadataWithoutIcon;
+use crate::token_metadata::TokenMetadataWithOptionalIcon;
 use crate::utils::serde_bigdecimal;
 use crate::{
     get_reqwest_client, network, pool_data::PoolData, price_sources::binance::get_binance_price,
@@ -66,7 +66,7 @@ pub struct Token {
     /// 'Main pool' is a pool that leads to a token that can be farther converted
     /// into [`USD_TOKEN`] through one of [`USD_ROUTES`].
     pub main_pool: Option<String>,
-    pub metadata: TokenMetadataWithoutIcon,
+    pub metadata: TokenMetadataWithOptionalIcon,
     #[serde(with = "dec_format")]
     #[serde(default)]
     pub total_supply: Balance,

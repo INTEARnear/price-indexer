@@ -15,7 +15,10 @@ use utoipa_swagger_ui::SwaggerUi;
 use crate::{
     token::{Token, TokenScore},
     tokens::Tokens,
+    utils::get_user_token_balances,
 };
+
+const WRAP_NEAR_ICON: &str = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTA4MCIgaGVpZ2h0PSIxMDgwIiB2aWV3Qm94PSIwIDAgMTA4MCAxMDgwIiBmaWxsPSJub25lIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPgo8cmVjdCB3aWR0aD0iMTA4MCIgaGVpZ2h0PSIxMDgwIiBmaWxsPSIjMDBFQzk3Ii8+CjxwYXRoIGQ9Ik03NzMuNDI1IDI0My4zOEM3NTEuNDUzIDI0My4zOCA3MzEuMDU0IDI1NC43NzIgNzE5LjU0NCAyNzMuNDk5TDU5NS41MzggNDU3LjYwNkM1OTEuNDk5IDQ2My42NzMgNTkzLjEzOCA0NzEuODU0IDU5OS4yMDYgNDc1Ljg5M0M2MDQuMTI0IDQ3OS4xNzIgNjEwLjYzMSA0NzguNzY2IDYxNS4xMSA0NzQuOTEzTDczNy4xNzIgMzY5LjA0MkM3MzkuMiAzNjcuMjE3IDc0Mi4zMjcgMzY3LjQwMyA3NDQuMTUyIDM2OS40MzFDNzQ0Ljk4IDM3MC4zNjEgNzQ1LjQyIDM3MS41NjEgNzQ1LjQyIDM3Mi43OTRWNzA0LjI2NUM3NDUuNDIgNzA3LjAwMyA3NDMuMjA2IDcwOS4yIDc0MC40NjggNzA5LjJDNzM4Ljk5NyA3MDkuMiA3MzcuNjExIDcwOC41NTggNzM2LjY4MiA3MDcuNDI1TDM2Ny43MDcgMjY1Ljc1OEMzNTUuNjkgMjUxLjU3NyAzMzguMDQ1IDI0My4zOTcgMzE5LjQ3IDI0My4zOEgzMDYuNTc1QzI3MS42NzMgMjQzLjM4IDI0My4zOCAyNzEuNjczIDI0My4zOCAzMDYuNTc1Vjc3My40MjVDMjQzLjM4IDgwOC4zMjcgMjcxLjY3MyA4MzYuNjIgMzA2LjU3NSA4MzYuNjJDMzI4LjU0NiA4MzYuNjIgMzQ4Ljk0NiA4MjUuMjI4IDM2MC40NTYgODA2LjUwMUw0ODQuNDYyIDYyMi4zOTRDNDg4LjUwMSA2MTYuMzI3IDQ4Ni44NjIgNjA4LjE0NiA0ODAuNzk0IDYwNC4xMDdDNDc1Ljg3NiA2MDAuODI4IDQ2OS4zNjkgNjAxLjIzNCA0NjQuODkgNjA1LjA4N0wzNDIuODI4IDcxMC45NThDMzQwLjggNzEyLjc4MyAzMzcuNjczIDcxMi41OTcgMzM1Ljg0OCA3MTAuNTY5QzMzNS4wMiA3MDkuNjM5IDMzNC41OCA3MDguNDM5IDMzNC41OTcgNzA3LjIwNlYzNzUuNjUxQzMzNC41OTcgMzcyLjkxMyAzMzYuODExIDM3MC43MTUgMzM5LjU0OSAzNzAuNzE1QzM0MS4wMDMgMzcwLjcxNSAzNDIuNDA2IDM3MS4zNTggMzQzLjMzNSAzNzIuNDlMNzEyLjI1OSA4MTQuMjQyQzcyNC4yNzYgODI4LjQyMyA3NDEuOTIxIDgzNi42MDMgNzYwLjQ5NiA4MzYuNjJINzczLjM5MkM4MDguMjkzIDgzNi42MzcgODM2LjYwMyA4MDguMzYxIDgzNi42MzcgNzczLjQ1OVYzMDYuNTc1QzgzNi42MzcgMjcxLjY3MyA4MDguMzQ0IDI0My4zOCA3NzMuNDQyIDI0My4zOEg3NzMuNDI1WiIgZmlsbD0iYmxhY2siLz4KPC9zdmc+";
 
 pub async fn launch_http_server(tokens: Arc<RwLock<Tokens>>) {
     let tls_config = if let Ok(files) = std::env::var("SSL") {
@@ -227,7 +230,12 @@ pub async fn launch_http_server(tokens: Arc<RwLock<Tokens>>) {
                             let tokens = tokens.read().await;
                             HttpResponse::Ok()
                                 .insert_header(("Cache-Control", "public, max-age=1"))
-                                .json(tokens.tokens.get(&query.token_id))
+                                .json(match tokens.tokens.get(&query.token_id) {
+                                    Some(token) => serialize_with_icon(token),
+                                    None => {
+                                        return HttpResponse::NotFound().finish();
+                                    }
+                                })
                         }
                     }
                 }))
@@ -390,6 +398,38 @@ pub async fn launch_http_server(tokens: Arc<RwLock<Tokens>>) {
                         }
                     }
                 }))
+                .route("/get-user-tokens", web::get().to({
+                    let tokens = Arc::clone(&tokens);
+                    move |query: web::Query<AccountIdWrapper>| {
+                        let tokens = Arc::clone(&tokens);
+                        async move {
+                            match get_user_token_balances(query.account_id.clone()).await {
+                                Ok(balances) => {
+                                    let tokens = tokens.read().await;
+                                    let response: serde_json::Value = balances.tokens.into_iter()
+                                        .filter_map(|balance| {
+                                            if let Some(token_info) = tokens.tokens.get(&balance.contract_id) {
+                                                Some(serde_json::json!({
+                                                    "token": serialize_with_icon(token_info),
+                                                    "balance": balance.balance
+                                                }))
+                                            } else {
+                                                None
+                                            }
+                                        })
+                                        .collect();
+                                    HttpResponse::Ok()
+                                        .insert_header(("Cache-Control", "public, max-age=15"))
+                                        .json(response)
+                                },
+                                Err(e) => {
+                                    HttpResponse::InternalServerError()
+                                        .body(format!("Failed to fetch token balances: {}", e))
+                                }
+                            }
+                        }
+                    }
+                }))
     });
 
     let server = if let Some(tls_config) = tls_config {
@@ -479,4 +519,41 @@ where
         .map(|s| s.parse::<AccountId>())
         .filter_map(|result| result.ok())
         .collect())
+}
+
+fn serialize_with_icon(token: &Token) -> serde_json::Value {
+    serde_json::json!({
+        "account_id": token.account_id,
+        "price_usd_raw": token.price_usd_raw.to_string(),
+        "price_usd": token.price_usd.to_string(),
+        "price_usd_hardcoded": token.price_usd_hardcoded.to_string(),
+        "main_pool": token.main_pool,
+        "metadata": {
+            "name": token.metadata.name,
+            "symbol": token.metadata.symbol,
+            "decimals": token.metadata.decimals,
+            "reference": token.metadata.reference,
+            "icon": if token.account_id == "wrap.near" {
+                Some(WRAP_NEAR_ICON.to_string())
+            } else {
+                token.metadata.icon.clone()
+            },
+        },
+        "total_supply": token.total_supply.to_string(),
+        "circulating_supply": token.circulating_supply.to_string(),
+        "circulating_supply_excluding_team": token.circulating_supply_excluding_team.to_string(),
+        "reputation": token.reputation,
+        "socials": token.socials,
+        "slug": token.slug,
+        "deleted": token.deleted,
+        "reference": token.reference,
+        "liquidity_usd": token.liquidity_usd,
+        "volume_usd_24h": token.volume_usd_24h,
+        "created_at": token.created_at
+    })
+}
+
+#[derive(Debug, Deserialize)]
+struct AccountIdWrapper {
+    account_id: AccountId,
 }

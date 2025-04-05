@@ -17,7 +17,7 @@ use crate::utils::get_rpc_url;
 pub async fn get_token_metadata(
     token_id: AccountId,
     block_height: Option<BlockHeight>,
-) -> Result<TokenMetadataWithoutIcon, MetadataError> {
+) -> Result<TokenMetadataWithOptionalIcon, MetadataError> {
     if let Some(block_height) = block_height {
         if let Ok(metadata) =
             _get_token_metadata_internal(token_id.clone(), Some(block_height)).await
@@ -34,7 +34,7 @@ pub async fn get_token_metadata(
 async fn _get_token_metadata_internal(
     token_id: AccountId,
     block_height: Option<BlockHeight>,
-) -> Result<TokenMetadataWithoutIcon, MetadataError> {
+) -> Result<TokenMetadataWithOptionalIcon, MetadataError> {
     let client = JsonRpcClient::connect(get_rpc_url());
     let request = methods::query::RpcQueryRequest {
         block_reference: if let Some(block_height) = block_height {
@@ -65,9 +65,11 @@ pub enum MetadataError {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct TokenMetadataWithoutIcon {
+pub struct TokenMetadataWithOptionalIcon {
     pub name: String,
     pub symbol: String,
     pub decimals: u32,
     pub reference: Option<String>,
+    #[serde(skip_serializing, default)]
+    pub icon: Option<String>,
 }

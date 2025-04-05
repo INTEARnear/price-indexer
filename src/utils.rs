@@ -1,4 +1,8 @@
+use cached::proc_macro::cached;
+use inindexer::near_indexer_primitives::types::AccountId;
 use serde::{Deserialize, Serialize};
+
+use crate::get_reqwest_client;
 
 pub fn get_rpc_url() -> String {
     std::env::var("RPC_URL").unwrap_or_else(|_| "https://rpc.shitzuapes.xyz".to_string())
@@ -81,4 +85,27 @@ pub struct NearIntentsTokenInfo {
     pub min_deposit_amount: String,
     pub min_withdrawal_amount: String,
     pub withdrawal_fee: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TokenBalance {
+    pub balance: String,
+    pub contract_id: AccountId,
+    #[serde(rename = "last_update_block_height")]
+    pub last_update_block_height: Option<u64>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AccountTokenBalances {
+    pub account_id: AccountId,
+    pub tokens: Vec<TokenBalance>,
+}
+
+#[cached(time = 30, result = true)]
+pub async fn get_user_token_balances(account_id: AccountId) -> anyhow::Result<AccountTokenBalances> {
+    let client = get_reqwest_client();
+    let url = format!("https://api.fastnear.com/v1/account/{account_id}/ft");
+    let response = client.get(&url).send().await?;
+    let balances = response.json::<AccountTokenBalances>().await?;
+    Ok(balances)
 }
