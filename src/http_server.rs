@@ -15,7 +15,7 @@ use utoipa_swagger_ui::SwaggerUi;
 use crate::{
     token::{Token, TokenScore},
     tokens::Tokens,
-    utils::get_user_token_balances,
+    utils::{get_user_token_balances, TokenBalance},
 };
 
 const WRAP_NEAR_ICON: &str = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTA4MCIgaGVpZ2h0PSIxMDgwIiB2aWV3Qm94PSIwIDAgMTA4MCAxMDgwIiBmaWxsPSJub25lIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPgo8cmVjdCB3aWR0aD0iMTA4MCIgaGVpZ2h0PSIxMDgwIiBmaWxsPSIjMDBFQzk3Ii8+CjxwYXRoIGQ9Ik03NzMuNDI1IDI0My4zOEM3NTEuNDUzIDI0My4zOCA3MzEuMDU0IDI1NC43NzIgNzE5LjU0NCAyNzMuNDk5TDU5NS41MzggNDU3LjYwNkM1OTEuNDk5IDQ2My42NzMgNTkzLjEzOCA0NzEuODU0IDU5OS4yMDYgNDc1Ljg5M0M2MDQuMTI0IDQ3OS4xNzIgNjEwLjYzMSA0NzguNzY2IDYxNS4xMSA0NzQuOTEzTDczNy4xNzIgMzY5LjA0MkM3MzkuMiAzNjcuMjE3IDc0Mi4zMjcgMzY3LjQwMyA3NDQuMTUyIDM2OS40MzFDNzQ0Ljk4IDM3MC4zNjEgNzQ1LjQyIDM3MS41NjEgNzQ1LjQyIDM3Mi43OTRWNzA0LjI2NUM3NDUuNDIgNzA3LjAwMyA3NDMuMjA2IDcwOS4yIDc0MC40NjggNzA5LjJDNzM4Ljk5NyA3MDkuMiA3MzcuNjExIDcwOC41NTggNzM2LjY4MiA3MDcuNDI1TDM2Ny43MDcgMjY1Ljc1OEMzNTUuNjkgMjUxLjU3NyAzMzguMDQ1IDI0My4zOTcgMzE5LjQ3IDI0My4zOEgzMDYuNTc1QzI3MS42NzMgMjQzLjM4IDI0My4zOCAyNzEuNjczIDI0My4zOCAzMDYuNTc1Vjc3My40MjVDMjQzLjM4IDgwOC4zMjcgMjcxLjY3MyA4MzYuNjIgMzA2LjU3NSA4MzYuNjJDMzI4LjU0NiA4MzYuNjIgMzQ4Ljk0NiA4MjUuMjI4IDM2MC40NTYgODA2LjUwMUw0ODQuNDYyIDYyMi4zOTRDNDg4LjUwMSA2MTYuMzI3IDQ4Ni44NjIgNjA4LjE0NiA0ODAuNzk0IDYwNC4xMDdDNDc1Ljg3NiA2MDAuODI4IDQ2OS4zNjkgNjAxLjIzNCA0NjQuODkgNjA1LjA4N0wzNDIuODI4IDcxMC45NThDMzQwLjggNzEyLjc4MyAzMzcuNjczIDcxMi41OTcgMzM1Ljg0OCA3MTAuNTY5QzMzNS4wMiA3MDkuNjM5IDMzNC41OCA3MDguNDM5IDMzNC41OTcgNzA3LjIwNlYzNzUuNjUxQzMzNC41OTcgMzcyLjkxMyAzMzYuODExIDM3MC43MTUgMzM5LjU0OSAzNzAuNzE1QzM0MS4wMDMgMzcwLjcxNSAzNDIuNDA2IDM3MS4zNTggMzQzLjMzNSAzNzIuNDlMNzEyLjI1OSA4MTQuMjQyQzcyNC4yNzYgODI4LjQyMyA3NDEuOTIxIDgzNi42MDMgNzYwLjQ5NiA4MzYuNjJINzczLjM5MkM4MDguMjkzIDgzNi42MzcgODM2LjYwMyA4MDguMzYxIDgzNi42MzcgNzczLjQ1OVYzMDYuNTc1QzgzNi42MzcgMjcxLjY3MyA4MDguMzQ0IDI0My4zOCA3NzMuNDQyIDI0My4zOEg3NzMuNDI1WiIgZmlsbD0iYmxhY2siLz4KPC9zdmc+";
@@ -404,8 +404,16 @@ pub async fn launch_http_server(tokens: Arc<RwLock<Tokens>>) {
                         let tokens = Arc::clone(&tokens);
                         async move {
                             match get_user_token_balances(query.account_id.clone()).await {
-                                Ok(balances) => {
+                                Ok(mut balances) => {
                                     let tokens = tokens.read().await;
+                                    let has_wnear = balances.tokens.iter().any(|balance| balance.contract_id == "wrap.near");
+                                    if !has_wnear {
+                                        balances.tokens.push(TokenBalance {
+                                            contract_id: "wrap.near".parse().unwrap(),
+                                            balance: "0".to_string(),
+                                            last_update_block_height: None,
+                                        });
+                                    }
                                     let response: serde_json::Value = balances.tokens.into_iter()
                                         .filter_map(|balance| {
                                             if let Some(token_info) = tokens.tokens.get(&balance.contract_id) {
@@ -527,7 +535,7 @@ fn serialize_with_icon(token: &Token) -> serde_json::Value {
         "price_usd_raw": token.price_usd_raw.to_string(),
         "price_usd": token.price_usd.to_string(),
         "price_usd_hardcoded": token.price_usd_hardcoded.to_string(),
-        "price_usd_24h_ago": token.price_usd_24h_ago.to_string(),
+        "price_usd_raw_24h_ago": token.price_usd_raw_24h_ago.to_string(),
         "main_pool": token.main_pool,
         "metadata": {
             "name": token.metadata.name,

@@ -300,7 +300,7 @@ async fn main() -> Result<(), anyhow::Error> {
                         }
 
                         match price_24h_ago_result {
-                            Ok(price_24h_ago) => token.price_usd_24h_ago = price_24h_ago,
+                            Ok(price_24h_ago) => token.price_usd_raw_24h_ago = price_24h_ago,
                             Err(e) => {
                                 if reputation >= TokenScore::NotFake {
                                     log::warn!("Failed to get 24h ago price for {token_id}: {e:?}")
