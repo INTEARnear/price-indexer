@@ -20,7 +20,7 @@ use crate::{
 
 type GetTokenPriceFn = fn(&BigDecimal) -> BigDecimal;
 const HARDCODED_TOKEN_PRICES: &[(&str, GetTokenPriceFn)] = &[
-    // ("usdt.tether-token.near", stablecoin_price), // USDt is already always 1.00 since it's USD_TOKEN
+    // ("usdt.tether-token.near", stablecoin_price), // USDt is already always 1.00 since it's returned by get_usd_token()
     (
         "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1", // USDC
         stablecoin_price,
@@ -102,10 +102,11 @@ fn default_account_id() -> AccountId {
 
 impl Token {
     pub fn sorting_score(&self, search: &str) -> u128 {
-        if self.account_id == "wrap.near"
+        if (self.account_id == "wrap.near" || self.account_id == "wrap.testnet")
             && ("near".starts_with(search)
                 || "wnear".starts_with(search)
-                || "wrap.near".starts_with(search))
+                || "wrap.near".starts_with(search)
+                || "wrap.testnet".starts_with(search))
         {
             return 69696969696969;
         }

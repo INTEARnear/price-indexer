@@ -2,7 +2,7 @@ use cached::proc_macro::cached;
 use inindexer::near_indexer_primitives::types::AccountId;
 use serde::{Deserialize, Serialize};
 
-use crate::get_reqwest_client;
+use crate::{get_reqwest_client, network::is_testnet};
 
 pub fn get_rpc_url() -> String {
     std::env::var("RPC_URL").unwrap_or_else(|_| "https://rpc.shitzuapes.xyz".to_string())
@@ -106,7 +106,11 @@ pub async fn get_user_token_balances(
     account_id: AccountId,
 ) -> anyhow::Result<AccountTokenBalances> {
     let client = get_reqwest_client();
-    let url = format!("https://api.fastnear.com/v1/account/{account_id}/ft");
+    let url = if is_testnet() {
+        format!("https://test.api.fastnear.com/v1/account/{account_id}/ft")
+    } else {
+        format!("https://api.fastnear.com/v1/account/{account_id}/ft")
+    };
     let response = client.get(&url).send().await?;
     let balances = response.json::<AccountTokenBalances>().await?;
     Ok(balances)

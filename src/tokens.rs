@@ -16,6 +16,7 @@ use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use sqlx::types::BigDecimal;
 
+use crate::network::is_testnet;
 use crate::token::HardcodedTokenPrice;
 use crate::{
     get_reqwest_client, network,
@@ -358,7 +359,11 @@ async fn get_owned_tokens(account_id: AccountId) -> HashMap<AccountId, u128> {
         balance: Balance,
     }
 
-    let url = format!("https://api.fastnear.com/v1/account/{account_id}/ft");
+    let url = if is_testnet() {
+        format!("https://test.api.fastnear.com/v1/account/{account_id}/ft")
+    } else {
+        format!("https://api.fastnear.com/v1/account/{account_id}/ft")
+    };
     match get_reqwest_client().get(&url).send().await {
         Ok(response) => match response.json::<Response>().await {
             Ok(response) => response
