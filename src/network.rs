@@ -6,7 +6,7 @@ pub fn is_testnet() -> bool {
 
 pub fn get_usd_token() -> &'static str {
     if is_testnet() {
-        "usdtt.fakes.testnet"
+        "usdc.fakes.testnet"
     } else {
         "usdt.tether-token.near"
     }
@@ -24,7 +24,7 @@ pub fn get_usd_decimals() -> u32 {
 pub fn get_usd_routes() -> &'static [(&'static str, &'static str)] {
     if is_testnet() {
         &[
-            ("wrap.testnet", "REF-2418"), // NEAR-USDT
+            ("wrap.testnet", "REF-54"), // NEAR-USDC
         ]
     } else {
         &[
