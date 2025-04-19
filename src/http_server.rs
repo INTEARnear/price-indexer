@@ -13,6 +13,7 @@ use tokio::sync::RwLock;
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{
+    network::is_testnet,
     token::{Token, TokenScore},
     tokens::Tokens,
     utils::{get_user_token_balances, TokenBalance},
@@ -406,10 +407,15 @@ pub async fn launch_http_server(tokens: Arc<RwLock<Tokens>>) {
                             match get_user_token_balances(query.account_id.clone()).await {
                                 Ok(mut balances) => {
                                     let tokens = tokens.read().await;
-                                    let has_wnear = balances.tokens.iter().any(|balance| balance.contract_id == "wrap.near");
+                                    let wrap = if is_testnet() {
+                                        "wrap.testnet".parse().unwrap()
+                                    } else {
+                                        "wrap.near".parse().unwrap()
+                                    };
+                                    let has_wnear = balances.tokens.iter().any(|balance| balance.contract_id == wrap);
                                     if !has_wnear {
                                         balances.tokens.push(TokenBalance {
-                                            contract_id: "wrap.near".parse().unwrap(),
+                                            contract_id: wrap,
                                             balance: "0".to_string(),
                                             last_update_block_height: None,
                                         });
@@ -542,7 +548,7 @@ fn serialize_with_icon(token: &Token) -> serde_json::Value {
             "symbol": token.metadata.symbol,
             "decimals": token.metadata.decimals,
             "reference": token.metadata.reference,
-            "icon": if token.account_id == "wrap.near" {
+            "icon": if token.account_id == "wrap.near" || token.account_id == "wrap.testnet" {
                 Some(WRAP_NEAR_ICON.to_string())
             } else {
                 token.metadata.icon.clone()

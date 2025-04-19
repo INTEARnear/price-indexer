@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use crate::utils::serde_bigdecimal_tuple2;
+use crate::{network::is_testnet, utils::serde_bigdecimal_tuple2};
 use inindexer::near_indexer_primitives::types::AccountId;
 use intear_events::events::trade::trade_pool_change::{PoolType, RefPool};
 use serde::{Deserialize, Serialize};
@@ -45,7 +45,14 @@ pub fn extract_pool_data(pool: &PoolType) -> Option<PoolData> {
         PoolType::Aidols(pool) => {
             if pool.is_deployed {
                 return Some(PoolData {
-                    tokens: ("wrap.near".parse().unwrap(), pool.token_id.clone()),
+                    tokens: (
+                        if is_testnet() {
+                            "wrap.testnet".parse().unwrap()
+                        } else {
+                            "wrap.near".parse().unwrap()
+                        },
+                        pool.token_id.clone(),
+                    ),
                     ratios: (0.into(), 0.into()),
                     liquidity: (0.into(), 0.into()),
                 });
@@ -61,7 +68,14 @@ pub fn extract_pool_data(pool: &PoolType) -> Option<PoolData> {
             let token1_in_1_token0 = amount1.clone() / amount0.clone();
 
             Some(PoolData {
-                tokens: ("wrap.near".parse().unwrap(), pool.token_id.clone()),
+                tokens: (
+                    if is_testnet() {
+                        "wrap.testnet".parse().unwrap()
+                    } else {
+                        "wrap.near".parse().unwrap()
+                    },
+                    pool.token_id.clone(),
+                ),
                 ratios: (token0_in_1_token1, token1_in_1_token0),
                 liquidity: (amount0, amount1),
             })
@@ -69,7 +83,14 @@ pub fn extract_pool_data(pool: &PoolType) -> Option<PoolData> {
         PoolType::GraFun(pool) => {
             if pool.is_deployed {
                 return Some(PoolData {
-                    tokens: ("wrap.near".parse().unwrap(), pool.token_id.clone()),
+                    tokens: (
+                        if is_testnet() {
+                            "wrap.testnet".parse().unwrap()
+                        } else {
+                            "wrap.near".parse().unwrap()
+                        },
+                        pool.token_id.clone(),
+                    ),
                     ratios: (0.into(), 0.into()),
                     liquidity: (0.into(), 0.into()),
                 });
@@ -85,7 +106,14 @@ pub fn extract_pool_data(pool: &PoolType) -> Option<PoolData> {
             let token1_in_1_token0 = amount1.clone() / amount0.clone();
 
             Some(PoolData {
-                tokens: ("wrap.near".parse().unwrap(), pool.token_id.clone()),
+                tokens: (
+                    if is_testnet() {
+                        "wrap.testnet".parse().unwrap()
+                    } else {
+                        "wrap.near".parse().unwrap()
+                    },
+                    pool.token_id.clone(),
+                ),
                 ratios: (token0_in_1_token1, token1_in_1_token0),
                 liquidity: (amount0, amount1),
             })
