@@ -282,9 +282,13 @@ pub async fn launch_http_server(tokens: Arc<RwLock<Tokens>>) {
                                 query.account_id.clone(),
                                 query.platform.clone(),
                             ).await;
+                            let results_with_icons: Vec<serde_json::Value> = results
+                                .into_iter()
+                                .map(|token| serialize_with_icon(token))
+                                .collect();
                             HttpResponse::Ok()
                                 .insert_header(("Cache-Control", "public, max-age=1"))
-                                .json(results)
+                                .json(results_with_icons)
                         }
                     }
                 }))
