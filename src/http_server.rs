@@ -284,7 +284,7 @@ pub async fn launch_http_server(tokens: Arc<RwLock<Tokens>>) {
                             ).await;
                             let results_with_icons: Vec<serde_json::Value> = results
                                 .into_iter()
-                                .map(|token| serialize_with_icon(token))
+                                .map(serialize_with_icon)
                                 .collect();
                             HttpResponse::Ok()
                                 .insert_header(("Cache-Control", "public, max-age=1"))
