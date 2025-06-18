@@ -16,7 +16,7 @@ use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use sqlx::types::BigDecimal;
 
-use crate::network::is_testnet;
+use crate::network::{get_hardcoded_main_pool, is_testnet};
 use crate::token::HardcodedTokenPrice;
 use crate::{
     get_reqwest_client, network,
@@ -88,6 +88,14 @@ impl Tokens {
                     max_pool = Some(pool_id.clone());
                 }
                 total_liquidity += liquidity;
+            }
+        }
+        if let Some(pool_id) = get_hardcoded_main_pool(token_id.as_str()) {
+            if self.pools.contains_key(pool_id) {
+                println!("Hardcoded main pool for {token_id}: {pool_id}");
+                max_pool = Some(pool_id.to_string());
+            } else {
+                println!("Hardcoded main pool for {token_id} not found: {pool_id}");
             }
         }
         if max_pool.is_none() && !KNOWN_TOKENS_WITH_NO_POOL.contains(&token_id.as_str()) {

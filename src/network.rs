@@ -24,11 +24,22 @@ pub fn get_usd_decimals() -> u32 {
 pub fn get_usd_routes() -> &'static [(&'static str, &'static str)] {
     if is_testnet() {
         &[
-            ("wrap.testnet", "REF-54"), // NEAR-USDC
+            ("wrap.testnet", "REF-54"), // NEAR-USDC simple pool
         ]
     } else {
         &[
-            ("wrap.near", "REF-3879"), // NEAR-USDt
+            ("wrap.near", "REF-5470"), // NEAR-USDt simple pool
+            ("17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1", "REF-4513"), // USDt-USDC stable pool
+            ("nbtc.bridge.near", "REF-5949"), // NEAR-NBTC degen pool
         ]
+    }
+}
+
+pub fn get_hardcoded_main_pool(token_id: &str) -> Option<&'static str> {
+    match (is_testnet(), token_id) {
+        (false, "wrap.near") => Some("REF-5470"),
+        (false, "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1") => Some("REF-4513"),
+        (false, "nbtc.bridge.near") => Some("REF-5949"),
+        _ => None,
     }
 }

@@ -429,7 +429,11 @@ pub async fn launch_http_server(tokens: Arc<RwLock<Tokens>>) {
                                             if let Some(token_info) = tokens.tokens.get(&balance.contract_id) {
                                                 Some(serde_json::json!({
                                                     "token": serialize_with_icon(token_info),
-                                                    "balance": balance.balance
+                                                    "balance": if balance.balance.is_empty() {
+                                                        "0".to_string()
+                                                    } else {
+                                                        balance.balance
+                                                    }
                                                 }))
                                             } else {
                                                 None

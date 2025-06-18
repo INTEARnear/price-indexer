@@ -209,7 +209,7 @@ async fn main() -> Result<(), anyhow::Error> {
                     if let Some(last_event) = events.last() {
                         recent_block_height.store(last_event.block_height, Ordering::Relaxed);
                         for event in events.iter() {
-                            if let Some(pool_data) = extract_pool_data(&event.pool) {
+                            if let Some(pool_data) = extract_pool_data(&event.pool, Some(event.block_height)).await {
                                 process_pool_change(event, &pool_data, &mut tokens_mut, &mut token_price_stream)
                                     .await;
                             } else {
