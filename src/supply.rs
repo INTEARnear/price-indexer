@@ -221,6 +221,7 @@ fn locked_addresses(token_id: &AccountId) -> Vec<AccountId> {
         ],
         "usdt.tether-token.near" => vec!["tether-treasury.near".parse().unwrap()],
         "token.burrow.near" => vec!["lockup.burrow.near".parse().unwrap()],
+        "token.pumpopoly.near" => vec!["world.pumpopoly.near".parse().unwrap()],
         _ => Vec::new(),
     }
 }
