@@ -121,25 +121,23 @@ pub async fn extract_pool_data(
                         .duration_since(UNIX_EPOCH)
                         .unwrap()
                         .as_nanos();
-                    if current_ts < stop_amp_time as u128 {
+                    if current_ts < stop_amp_time {
                         let time_range = stop_amp_time.checked_sub(init_amp_time)?;
-                        let time_delta = current_ts.checked_sub(init_amp_time as u128)?;
+                        let time_delta = current_ts.checked_sub(init_amp_time)?;
 
                         // Compute amp factor based on ramp time
                         if target_amp_factor >= init_amp_factor {
                             // Ramp up
                             let amp_range = target_amp_factor.checked_sub(init_amp_factor)?;
-                            let amp_delta = (amp_range as u128)
-                                .checked_mul(time_delta as u128)?
-                                .checked_div(time_range as u128)?;
-                            init_amp_factor.checked_add(amp_delta).map(|x| x as u128)
+                            let amp_delta =
+                                amp_range.checked_mul(time_delta)?.checked_div(time_range)?;
+                            init_amp_factor.checked_add(amp_delta)
                         } else {
                             // Ramp down
                             let amp_range = init_amp_factor.checked_sub(target_amp_factor)?;
-                            let amp_delta = (amp_range as u128)
-                                .checked_mul(time_delta as u128)?
-                                .checked_div(time_range as u128)?;
-                            init_amp_factor.checked_sub(amp_delta).map(|x| x as u128)
+                            let amp_delta =
+                                amp_range.checked_mul(time_delta)?.checked_div(time_range)?;
+                            init_amp_factor.checked_sub(amp_delta)
                         }
                     } else {
                         // when stop_ramp_ts == 0 or current_ts >= stop_ramp_ts
@@ -213,7 +211,7 @@ pub async fn extract_pool_data(
 
                 for (idx, c_amount) in current_c_amounts.iter().enumerate() {
                     if idx != index_x && idx != index_y {
-                        s_ = s_ + c_amount;
+                        s_ += c_amount;
                         c = c * &d / c_amount;
                     }
                 }
@@ -273,7 +271,7 @@ pub async fn extract_pool_data(
                         get_token_metadata(pool.token_account_ids[0].clone(), block_height),
                         get_token_metadata(pool.token_account_ids[1].clone(), block_height),
                     );
-                    let decimals = vec![
+                    let decimals = [
                         token0_metadata.ok()?.decimals,
                         token1_metadata.ok()?.decimals,
                     ];
@@ -283,7 +281,7 @@ pub async fn extract_pool_data(
                         .map(|&(token_in_idx, token_out_idx)| {
                             let token_in_amount = 1;
 
-                            let new_x_amount = &token_in_amount + &pool.c_amounts[token_in_idx];
+                            let new_x_amount = token_in_amount + pool.c_amounts[token_in_idx];
 
                             let y = stableswap_compute_y(
                                 BigDecimal::from_u128(new_x_amount)?,
@@ -361,7 +359,7 @@ pub async fn extract_pool_data(
                             .unwrap_or(precision.to_u128()?),
                     ];
                     println!("RATES (): {:?}", rates);
-                    let decimals = vec![
+                    let decimals = [
                         token0_metadata.ok()?.decimals,
                         token1_metadata.ok()?.decimals,
                     ];
@@ -470,11 +468,11 @@ pub async fn extract_pool_data(
                     );
                     println!("DEGENS: {:?}", degens);
                     let degens = degens.ok()?;
-                    let degens = vec![
+                    let degens = [
                         degens.get(&pool.token_account_ids[0]).copied()?,
                         degens.get(&pool.token_account_ids[1]).copied()?,
                     ];
-                    let decimals = vec![
+                    let decimals = [
                         token0_metadata.ok()?.decimals,
                         token1_metadata.ok()?.decimals,
                     ];
