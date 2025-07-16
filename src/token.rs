@@ -287,6 +287,10 @@ pub fn get_hardcoded_price_usd(
                 Some(price) => HardcodedTokenPrice::Price(price),
                 None => HardcodedTokenPrice::TemporaryUnavailable,
             },
+            "sui.omft.near" => match get_binance_price("SUIUSDT") {
+                Some(price) => HardcodedTokenPrice::Price(price),
+                None => HardcodedTokenPrice::TemporaryUnavailable,
+            },
             "eth.omft.near" => HardcodedTokenPrice::Alias("aurora".parse().unwrap()),
             _ => match token_id.as_str().split_once('-') {
                 Some(("sol", token_id)) => {

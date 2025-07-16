@@ -87,6 +87,7 @@ async fn connect_to_binance_ws(
 pub async fn start_binance_ws(cancellation_token: CancellationToken) {
     let symbols = [
         "BERAUSDT", "XRPUSDT", "POLUSDT", "BTCUSDT", "DOGEUSDT", "BNBUSDT", "ARBUSDT", "ZECUSDT",
+        "SUIUSDT",
     ];
 
     let streams = symbols
