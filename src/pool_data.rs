@@ -646,7 +646,7 @@ pub async fn extract_pool_data(
             // Calculate median, to get the fairest / most common price among all fee tiers
             non_zero_prices.sort_by(|a, b| a.partial_cmp(b).unwrap());
             let median_idx = non_zero_prices.len() / 2;
-            let median = if non_zero_prices.len() % 2 == 0 {
+            let median = if non_zero_prices.len().is_multiple_of(2) {
                 (non_zero_prices[median_idx - 1] + non_zero_prices[median_idx]) / 2.0
             } else {
                 non_zero_prices[median_idx]
