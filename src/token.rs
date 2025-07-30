@@ -547,6 +547,7 @@ pub fn get_reputation(token_id: &AccountId, spam_tokens: &HashSet<AccountId>) ->
         | "aaaaaa20d9e0e2461697782ef11675f668207961.factory.bridge.near"
         | "nbtc.bridge.near"
         | "token.rhealab.near"
+        | "xtoken.rhealab.near"
         | "token.paras.near" => TokenScore::Reputable,
         _ if spam_tokens.contains(token_id) => TokenScore::Spam,
         _ => TokenScore::Unknown,
