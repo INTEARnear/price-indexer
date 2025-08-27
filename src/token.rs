@@ -525,6 +525,8 @@ pub fn get_reputation(token_id: &AccountId, spam_tokens: &HashSet<AccountId>) ->
         | "xrp.omft.near"
         | "zec.omft.near"
         | "kat.token0.near"
+        | "token.paras.near"
+        | "jambo-1679.meme-cooking.near"
         | "cardano.omft.near" => TokenScore::NotFake,
         "token.lonkingnearbackto2024.near"
         | "token.sweat"
@@ -548,7 +550,8 @@ pub fn get_reputation(token_id: &AccountId, spam_tokens: &HashSet<AccountId>) ->
         | "nbtc.bridge.near"
         | "token.rhealab.near"
         | "xtoken.rhealab.near"
-        | "token.paras.near" => TokenScore::Reputable,
+        | "lst.rhealab.near"
+        | "token.publicailab.near" => TokenScore::Reputable,
         _ if spam_tokens.contains(token_id) => TokenScore::Spam,
         _ => TokenScore::Unknown,
     }
