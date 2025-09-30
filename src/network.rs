@@ -28,12 +28,11 @@ pub fn get_usd_routes() -> &'static [(&'static str, &'static str)] {
         ]
     } else {
         &[
-            ("wrap.near", "REF-5470"), // NEAR-USDt simple pool
+            ("wrap.near", "REF-6063"), // NEAR-USDt simple pool
             (
                 "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
-                "REF-4513",
+                "REF-6416",
             ), // USDt-USDC stable pool
-            ("nbtc.bridge.near", "REF-5949"), // NEAR-NBTC degen pool
         ]
     }
 }
