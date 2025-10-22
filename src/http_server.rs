@@ -1,4 +1,4 @@
-use std::{fs::File, io::BufReader, sync::Arc};
+use std::{collections::HashMap, fs::File, io::BufReader, sync::Arc};
 
 use actix_cors::Cors;
 use actix_web::{
@@ -6,9 +6,14 @@ use actix_web::{
     web::{self, redirect},
     App, HttpResponse, HttpServer, Route,
 };
-use inindexer::near_indexer_primitives::types::AccountId;
+use inindexer::near_indexer_primitives::{
+    types::{AccountId, Balance, BlockReference, Finality},
+    views::QueryRequest,
+};
 use itertools::Itertools;
-use serde::{Deserialize, Deserializer};
+use near_jsonrpc_client::{methods::query::RpcQueryRequest, JsonRpcClient};
+use near_jsonrpc_primitives::types::query::QueryResponseKind;
+use serde::{Deserialize, Deserializer, Serialize};
 use tokio::sync::RwLock;
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -16,7 +21,7 @@ use crate::{
     network::is_testnet,
     token::{Token, TokenScore},
     tokens::Tokens,
-    utils::{get_user_token_balances, TokenBalance},
+    utils::{get_rpc_url, get_user_token_balances},
 };
 
 const WRAP_NEAR_ICON: &str = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTA4MCIgaGVpZ2h0PSIxMDgwIiB2aWV3Qm94PSIwIDAgMTA4MCAxMDgwIiBmaWxsPSJub25lIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPgo8cmVjdCB3aWR0aD0iMTA4MCIgaGVpZ2h0PSIxMDgwIiBmaWxsPSIjMDBFQzk3Ii8+CjxwYXRoIGQ9Ik03NzMuNDI1IDI0My4zOEM3NTEuNDUzIDI0My4zOCA3MzEuMDU0IDI1NC43NzIgNzE5LjU0NCAyNzMuNDk5TDU5NS41MzggNDU3LjYwNkM1OTEuNDk5IDQ2My42NzMgNTkzLjEzOCA0NzEuODU0IDU5OS4yMDYgNDc1Ljg5M0M2MDQuMTI0IDQ3OS4xNzIgNjEwLjYzMSA0NzguNzY2IDYxNS4xMSA0NzQuOTEzTDczNy4xNzIgMzY5LjA0MkM3MzkuMiAzNjcuMjE3IDc0Mi4zMjcgMzY3LjQwMyA3NDQuMTUyIDM2OS40MzFDNzQ0Ljk4IDM3MC4zNjEgNzQ1LjQyIDM3MS41NjEgNzQ1LjQyIDM3Mi43OTRWNzA0LjI2NUM3NDUuNDIgNzA3LjAwMyA3NDMuMjA2IDcwOS4yIDc0MC40NjggNzA5LjJDNzM4Ljk5NyA3MDkuMiA3MzcuNjExIDcwOC41NTggNzM2LjY4MiA3MDcuNDI1TDM2Ny43MDcgMjY1Ljc1OEMzNTUuNjkgMjUxLjU3NyAzMzguMDQ1IDI0My4zOTcgMzE5LjQ3IDI0My4zOEgzMDYuNTc1QzI3MS42NzMgMjQzLjM4IDI0My4zOCAyNzEuNjczIDI0My4zOCAzMDYuNTc1Vjc3My40MjVDMjQzLjM4IDgwOC4zMjcgMjcxLjY3MyA4MzYuNjIgMzA2LjU3NSA4MzYuNjJDMzI4LjU0NiA4MzYuNjIgMzQ4Ljk0NiA4MjUuMjI4IDM2MC40NTYgODA2LjUwMUw0ODQuNDYyIDYyMi4zOTRDNDg4LjUwMSA2MTYuMzI3IDQ4Ni44NjIgNjA4LjE0NiA0ODAuNzk0IDYwNC4xMDdDNDc1Ljg3NiA2MDAuODI4IDQ2OS4zNjkgNjAxLjIzNCA0NjQuODkgNjA1LjA4N0wzNDIuODI4IDcxMC45NThDMzQwLjggNzEyLjc4MyAzMzcuNjczIDcxMi41OTcgMzM1Ljg0OCA3MTAuNTY5QzMzNS4wMiA3MDkuNjM5IDMzNC41OCA3MDguNDM5IDMzNC41OTcgNzA3LjIwNlYzNzUuNjUxQzMzNC41OTcgMzcyLjkxMyAzMzYuODExIDM3MC43MTUgMzM5LjU0OSAzNzAuNzE1QzM0MS4wMDMgMzcwLjcxNSAzNDIuNDA2IDM3MS4zNTggMzQzLjMzNSAzNzIuNDlMNzEyLjI1OSA4MTQuMjQyQzcyNC4yNzYgODI4LjQyMyA3NDEuOTIxIDgzNi42MDMgNzYwLjQ5NiA4MzYuNjJINzczLjM5MkM4MDguMjkzIDgzNi42MzcgODM2LjYwMyA4MDguMzYxIDgzNi42MzcgNzczLjQ1OVYzMDYuNTc1QzgzNi42MzcgMjcxLjY3MyA4MDguMzQ0IDI0My4zOCA3NzMuNDQyIDI0My4zOEg3NzMuNDI1WiIgZmlsbD0iYmxhY2siLz4KPC9zdmc+";
@@ -405,50 +410,109 @@ pub async fn launch_http_server(tokens: Arc<RwLock<Tokens>>) {
                 }))
                 .route("/get-user-tokens", web::get().to({
                     let tokens = Arc::clone(&tokens);
-                    move |query: web::Query<AccountIdWrapper>| {
+                    move |query: web::Query<GetUserTokensRequest>| {
                         let tokens = Arc::clone(&tokens);
+
                         async move {
-                            match get_user_token_balances(query.account_id.clone()).await {
-                                Ok(mut balances) => {
-                                    let tokens = tokens.read().await;
-                                    let wrap = if is_testnet() {
-                                        "wrap.testnet".parse().unwrap()
-                                    } else {
-                                        "wrap.near".parse().unwrap()
-                                    };
-                                    let has_wnear = balances.tokens.iter().any(|balance| balance.contract_id == wrap);
-                                    if !has_wnear {
-                                        balances.tokens.push(TokenBalance {
-                                            contract_id: wrap,
-                                            balance: "0".to_string(),
-                                            last_update_block_height: None,
-                                        });
-                                    }
-                                    let response: serde_json::Value = balances.tokens.into_iter()
-                                        .filter_map(|balance| {
-                                            if let Some(token_info) = tokens.tokens.get(&balance.contract_id) {
-                                                Some(serde_json::json!({
-                                                    "token": serialize_with_icon(token_info),
-                                                    "balance": if balance.balance.is_empty() {
-                                                        "0".to_string()
-                                                    } else {
-                                                        balance.balance
-                                                    }
-                                                }))
-                                            } else {
-                                                None
-                                            }
-                                        })
-                                        .collect();
-                                    HttpResponse::Ok()
-                                        .insert_header(("Cache-Control", "public, max-age=15"))
-                                        .json(response)
-                                },
-                                Err(e) => {
-                                    HttpResponse::InternalServerError()
-                                        .body(format!("Failed to fetch token balances: {}", e))
-                                }
+                            #[derive(Debug)]
+                            struct TokenBalanceResponse {
+                                token: AccountId,
+                                balance: Balance,
+                                source: TokenBalanceSource,
                             }
+
+                            let account_id = query.account_id.clone();
+                            let direct = async move {
+                                match get_user_token_balances(account_id.clone()).await {
+                                    Ok(balances) => {
+                                        let wrap = if is_testnet() {
+                                            "wrap.testnet".parse().unwrap()
+                                        } else {
+                                            "wrap.near".parse().unwrap()
+                                        };
+                                        let has_wnear = balances.tokens.iter().any(|balance| balance.contract_id == wrap);
+                                        let mut balances = balances.tokens.into_iter().map(|balance| TokenBalanceResponse {
+                                            token: balance.contract_id,
+                                            balance: if balance.balance.is_empty() {
+                                                0
+                                            } else if let Ok(balance) = balance.balance.parse::<u128>() {
+                                                balance
+                                            } else {
+                                                0
+                                            },
+                                            source: TokenBalanceSource::Direct,
+                                        }).collect::<Vec<_>>();
+                                        if !has_wnear {
+                                            balances.push(TokenBalanceResponse {
+                                                token: wrap,
+                                                balance: 0,
+                                                source: TokenBalanceSource::Direct,
+                                            });
+                                        }
+                                        balances
+                                    }
+                                    Err(_) => {
+                                        vec![]
+                                    }
+                                }
+                            };
+
+                            let account_id = query.account_id.clone();
+                            let rhea = async move {
+                                let client = JsonRpcClient::connect(get_rpc_url());
+                                client.call(RpcQueryRequest {
+                                    block_reference: BlockReference::Finality(Finality::None),
+                                    request: QueryRequest::CallFunction {
+                                        account_id: "v2.ref-finance.near".parse().unwrap(),
+                                        method_name: "get_deposits".into(),
+                                        args: serde_json::to_vec(&serde_json::json!({
+                                            "account_id": account_id
+                                        })).unwrap().into(),
+                                    },
+                                })
+                                .await
+                                .map(|response| match response.kind {
+                                    QueryResponseKind::CallResult(call_result) => {
+                                        let map: HashMap<AccountId, String> = serde_json::from_slice(&call_result.result).unwrap();
+                                        map.into_iter().map(|(token, balance)| TokenBalanceResponse {
+                                            token: token,
+                                            balance: balance.parse::<u128>().unwrap_or_default(),
+                                            source: TokenBalanceSource::Rhea,
+                                        }).collect::<Vec<_>>()
+                                    }
+                                    _ => vec![],
+                                })
+                                .unwrap_or_default()
+                            };
+
+                            let mut sources = vec![];
+                            if query.direct {
+                                sources.push(tokio::spawn(direct));
+                            }
+                            if query.rhea {
+                                sources.push(tokio::spawn(rhea));
+                            }
+
+                            let balances = futures_util::future::join_all(sources).await;
+                            let balances = balances.into_iter().flatten().flatten().collect::<Vec<_>>();
+
+                            let tokens = tokens.read().await;
+                            let response: serde_json::Value = balances.into_iter()
+                                .filter_map(|balance| {
+                                    if let Some(token_info) = tokens.tokens.get(&balance.token) {
+                                        Some(serde_json::json!({
+                                            "token": serialize_with_icon(token_info),
+                                            "balance": balance.balance.to_string(),
+                                            "source": balance.source,
+                                        }))
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect();
+                            HttpResponse::Ok()
+                                .insert_header(("Cache-Control", "public, max-age=15"))
+                                .json(response)
                         }
                     }
                 }))
@@ -577,6 +641,20 @@ fn serialize_with_icon(token: &Token) -> serde_json::Value {
 }
 
 #[derive(Debug, Deserialize)]
-struct AccountIdWrapper {
+struct GetUserTokensRequest {
     account_id: AccountId,
+    #[serde(default = "default_direct")]
+    direct: bool,
+    #[serde(default)]
+    rhea: bool,
+}
+
+fn default_direct() -> bool {
+    true
+}
+
+#[derive(Debug, Serialize)]
+enum TokenBalanceSource {
+    Direct,
+    Rhea,
 }
