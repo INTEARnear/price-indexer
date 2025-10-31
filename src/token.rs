@@ -1,3 +1,4 @@
+use std::time::Duration;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 
@@ -542,7 +543,7 @@ If the token details contain links, or otherwise appear to be spam that is massi
         .header("anthropic-version", "2023-06-01")
         .header("Content-Type", "application/json")
         .json(&serde_json::json!({
-            "model": "claude-3-5-sonnet-20240620",
+            "model": "claude-sonnet-4-5-20250929",
             "max_tokens": 6,
             "system": system_message,
             "messages": [

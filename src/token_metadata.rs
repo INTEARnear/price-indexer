@@ -1,3 +1,4 @@
+use std::time::Duration;
 use cached::proc_macro::cached;
 use inindexer::near_indexer_primitives::{
     types::{AccountId, BlockHeight, BlockId, BlockReference, Finality},
@@ -13,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::utils::get_rpc_url;
 
-#[cached(time = 3600, result = true)]
+#[cached(time = 86400, result = true)]
 pub async fn get_token_metadata(
     token_id: AccountId,
     block_height: Option<BlockHeight>,

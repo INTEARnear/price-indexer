@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use cached::proc_macro::cached;
 use inindexer::near_indexer_primitives::types::AccountId;
 use serde::{Deserialize, Serialize};

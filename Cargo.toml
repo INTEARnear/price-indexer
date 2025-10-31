@@ -25,7 +25,7 @@ redis = { version = "0.25.3", features = [
 sqlx = { version = "0.8.1", features = ["bigdecimal"] }
 near-jsonrpc-client = "0.15.1"
 near-jsonrpc-primitives = "0.28.0"
-cached = { version = "0.55.1", features = [
+cached = { version = "0.56.0", features = [
     "async",
     "async_tokio_rt_multi_thread",
     "disk_store",

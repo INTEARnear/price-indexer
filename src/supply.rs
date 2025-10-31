@@ -28,6 +28,7 @@ use near_jsonrpc_client::{
 };
 use near_jsonrpc_primitives::types::query::QueryResponseKind;
 use serde::Deserialize;
+use std::time::Duration;
 
 use crate::{get_reqwest_client, utils::get_rpc_url};
 
@@ -322,15 +323,11 @@ pub async fn get_total_supply(token_id: &AccountId) -> Result<Balance, SupplyErr
     if let Some(hardcoded_total_supply) = hardcoded_total_supply(token_id.clone()).await {
         return Ok(hardcoded_total_supply);
     }
-    let total_supply = if let Some(hardcoded_max_total_supply) =
-        hardcoded_max_total_supply(token_id.clone()).await
-    {
-        hardcoded_max_total_supply
-    } else {
-        get_ft_total_supply(token_id.clone()).await?
-    };
-    let sent_to_burn_addresses = get_sent_to_burn_addresses(token_id.clone()).await?;
-    Ok(total_supply.saturating_sub(sent_to_burn_addresses))
+    let (total_supply, sent_to_burn_addresses) = tokio::join!(
+        get_ft_total_supply(token_id.clone()),
+        get_sent_to_burn_addresses(token_id.clone()),
+    );
+    Ok(total_supply?.saturating_sub(sent_to_burn_addresses?))
 }
 
 pub async fn get_circulating_supply(
@@ -341,16 +338,18 @@ pub async fn get_circulating_supply(
     {
         return Ok(hardcoded_circulating_supply);
     }
-    let total_supply = get_ft_total_supply(token_id.clone()).await?;
-    let sent_to_burn_addresses = get_sent_to_burn_addresses(token_id.clone()).await?;
-    let excluded_supply = get_excluded_supply(token_id.clone(), exclude_team).await?;
+    let (total_supply, sent_to_burn_addresses, excluded_supply) = tokio::join!(
+        get_ft_total_supply(token_id.clone()),
+        get_sent_to_burn_addresses(token_id.clone()),
+        get_excluded_supply(token_id.clone(), exclude_team),
+    );
     let additional_non_circulating_supply =
         hardcoded_additional_non_circulating_supply(token_id.clone())
             .await
             .unwrap_or_default();
-    Ok(total_supply
-        .saturating_sub(sent_to_burn_addresses)
-        .saturating_sub(excluded_supply)
+    Ok(total_supply?
+        .saturating_sub(sent_to_burn_addresses?)
+        .saturating_sub(excluded_supply?)
         .saturating_sub(additional_non_circulating_supply))
 }
 
@@ -383,14 +382,17 @@ pub async fn get_ft_total_supply(token_id: AccountId) -> Result<Balance, SupplyE
     )
 }
 
-#[cached(time = 3600, result = true)]
+#[cached(time = 86400, result = true)]
 pub async fn get_sent_to_burn_addresses(token_id: AccountId) -> Result<Balance, SupplyError> {
-    let mut total_sent_to_burn_addresses = 0;
-    for burn_address in burn_addresses(&token_id) {
-        let balance = get_balance(token_id.clone(), burn_address.clone()).await?;
-        total_sent_to_burn_addresses += balance;
+    let burn_addrs = burn_addresses(&token_id);
+
+    let mut futures = Vec::new();
+    for burn_address in burn_addrs {
+        futures.push(get_balance(token_id.clone(), burn_address));
     }
-    Ok(total_sent_to_burn_addresses)
+    let results = futures_util::future::try_join_all(futures).await?;
+
+    Ok(results.into_iter().sum())
 }
 
 #[cached(time = 3600, result = true)]
@@ -398,18 +400,24 @@ pub async fn get_excluded_supply(
     token_id: AccountId,
     exclude_team: bool,
 ) -> Result<Balance, SupplyError> {
-    let mut total_excluded_supply = 0;
-    for excluded_address in locked_addresses(&token_id) {
-        let balance = get_balance(token_id.clone(), excluded_address.clone()).await?;
-        total_excluded_supply += balance;
+    let locked_addrs = locked_addresses(&token_id);
+    let team_addrs = if exclude_team {
+        team_addresses(&token_id)
+    } else {
+        Vec::new()
+    };
+
+    let mut futures = Vec::new();
+    for excluded_address in locked_addrs {
+        futures.push(get_balance(token_id.clone(), excluded_address));
     }
-    if exclude_team {
-        for team_address in team_addresses(&token_id) {
-            let balance = get_balance(token_id.clone(), team_address.clone()).await?;
-            total_excluded_supply += balance;
-        }
+    for team_address in team_addrs {
+        futures.push(get_balance(token_id.clone(), team_address));
     }
-    Ok(total_excluded_supply)
+
+    let results = futures_util::future::try_join_all(futures).await?;
+
+    Ok(results.into_iter().sum())
 }
 
 #[cached(time = 60, result = true)]

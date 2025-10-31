@@ -391,7 +391,7 @@ async fn get_owned_tokens(account_id: AccountId) -> HashMap<AccountId, u128> {
     }
 }
 
-#[io_cached(time = 3600, disk = true, map_error = "|e| anyhow::anyhow!(e)")]
+#[io_cached(time = 86400, disk = true, map_error = "|e| anyhow::anyhow!(e)")]
 pub async fn get_reference(reference: String) -> Result<serde_json::Value, anyhow::Error> {
     if let Ok(url) = Url::parse(&reference) {
         if let Ok(response) = get_reqwest_client().get(url).send().await {

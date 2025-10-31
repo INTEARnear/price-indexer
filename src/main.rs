@@ -10,6 +10,7 @@ mod utils;
 
 use std::convert::Infallible;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::Duration;
 use std::time::SystemTime;
 use std::{
     collections::{HashMap, HashSet},
@@ -22,7 +23,7 @@ use cached::proc_macro::cached;
 use chrono::Utc;
 use http_server::launch_http_server;
 use inevents_redis::RedisEventStream;
-use inindexer::near_indexer_primitives::types::{AccountId, BlockHeightDelta};
+use inindexer::near_indexer_primitives::types::AccountId;
 use intear_events::events::{
     newcontract::nep141::NewContractNep141Event, price::price_token::PriceTokenEvent,
     trade::trade_pool_change::TradePoolChangeEvent,
@@ -73,31 +74,72 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let mut tokens = load_tokens().await.expect("Failed to load tokens");
     log::info!("Updating metadata of {} tokens", tokens.tokens.len());
-    for (account_id, token) in tokens.tokens.iter_mut() {
-        if token.deleted {
-            continue;
-        }
-        token.account_id = account_id.clone();
-        token.reputation = get_reputation(account_id, &tokens.spam_tokens);
-        token.slug = get_slug(account_id)
-            .into_iter()
-            .map(|s| s.to_owned())
-            .collect();
-        token.socials = get_socials(account_id)
-            .into_iter()
-            .map(|(k, v)| (k.to_owned(), v.to_owned()))
-            .collect();
-        match get_token_metadata(account_id.clone(), None).await {
-            Ok(metadata) => token.metadata = metadata,
-            Err(MetadataError::RpcQueryError(JsonRpcError::ServerError(
-                JsonRpcServerError::HandlerError(RpcQueryError::UnknownAccount { .. }),
-            ))) => {
-                log::warn!("Token {account_id} doesn't exist, marking as deleted");
-                token.deleted = true;
+
+    let account_ids: Vec<AccountId> = tokens
+        .tokens
+        .iter()
+        .filter_map(|(account_id, token)| {
+            if !token.deleted {
+                Some(account_id.clone())
+            } else {
+                None
             }
-            Err(e) => {
-                if token.reputation >= TokenScore::NotFake {
-                    log::warn!("Failed to get metadata for {account_id}: {e:?}")
+        })
+        .collect();
+
+    const BATCH_SIZE: usize = 10;
+    let total_batches = (account_ids.len() + BATCH_SIZE - 1) / BATCH_SIZE;
+
+    for (batch_idx, chunk) in account_ids.chunks(BATCH_SIZE).enumerate() {
+        tokio::time::sleep(Duration::from_millis(50)).await; // avoid rate limits
+        log::info!(
+            "Processing batch {}/{} ({} tokens)",
+            batch_idx + 1,
+            total_batches,
+            chunk.len()
+        );
+
+        let spam_tokens = &tokens.spam_tokens;
+        let futures: Vec<_> = chunk
+            .iter()
+            .map(|account_id| {
+                let account_id = account_id.clone();
+                let reputation = get_reputation(&account_id, spam_tokens);
+                async move {
+                    let metadata_result = get_token_metadata(account_id.clone(), None).await;
+                    (account_id, reputation, metadata_result)
+                }
+            })
+            .collect();
+
+        let results = futures_util::future::join_all(futures).await;
+
+        for (account_id, reputation, metadata_result) in results {
+            if let Some(token) = tokens.tokens.get_mut(&account_id) {
+                token.account_id = account_id.clone();
+                token.reputation = reputation;
+                token.slug = get_slug(&account_id)
+                    .into_iter()
+                    .map(|s| s.to_owned())
+                    .collect();
+                token.socials = get_socials(&account_id)
+                    .into_iter()
+                    .map(|(k, v)| (k.to_owned(), v.to_owned()))
+                    .collect();
+
+                match metadata_result {
+                    Ok(metadata) => token.metadata = metadata,
+                    Err(MetadataError::RpcQueryError(JsonRpcError::ServerError(
+                        JsonRpcServerError::HandlerError(RpcQueryError::UnknownAccount { .. }),
+                    ))) => {
+                        log::warn!("Token {account_id} doesn't exist, marking as deleted");
+                        token.deleted = true;
+                    }
+                    Err(e) => {
+                        if token.reputation >= TokenScore::NotFake {
+                            log::warn!("Failed to get metadata for {account_id}: {e:?}")
+                        }
+                    }
                 }
             }
         }
@@ -206,6 +248,7 @@ async fn main() -> Result<(), anyhow::Error> {
                         PriceTokenEvent::ID,
                     );
                     let mut tokens_mut = tokens.read().await.clone();
+                    let started_at = SystemTime::now();
                     if let Some(last_event) = events.last() {
                         recent_block_height.store(last_event.block_height, Ordering::Relaxed);
                         for event in events.iter() {
@@ -222,7 +265,9 @@ async fn main() -> Result<(), anyhow::Error> {
                             .await?;
                     }
 
+                    let pools_processed_at = SystemTime::now();
                     tokens_mut.recalculate_prices();
+                    let prices_recalculated_at = SystemTime::now();
                     for (token_id, token) in tokens_mut.tokens.iter_mut() {
                         if token.deleted {
                             continue;
@@ -236,7 +281,7 @@ async fn main() -> Result<(), anyhow::Error> {
                             (..1_000.0, _) => 200,
                             (..10_000.0, _) => 100,
                             (10_000.0.., _) => 60,
-                            _ => BlockHeightDelta::MAX,
+                            _ => 10_000,
                         };
                         if i % update_interval_blocks != 0 {
                             continue;
@@ -308,33 +353,36 @@ async fn main() -> Result<(), anyhow::Error> {
                             }
                         }
                     }
+                    let token_data_updated_at = SystemTime::now();
 
                     let mut spam_pending = Vec::new();
                     let mut token_metadatas = HashMap::new();
 
-                    for (token_id, token) in tokens_mut.tokens.iter_mut() {
-                        if token.deleted {
-                            continue;
-                        }
-                        if let Ok(token_metadata) = get_token_metadata(token_id.clone(), None).await {
-                            if token.reference.is_null() {
-                                if let Some(reference) = token_metadata.reference.as_ref() {
-                                    token.reference = get_reference(reference.clone()).await.unwrap_or_default();
-                                }
+                    if i % 1_000 == 0 {
+                        for (token_id, token) in tokens_mut.tokens.iter_mut() {
+                            if token.deleted {
+                                continue;
                             }
-                            let meta_stringified = format!(
-                                "Symbol: {}\nName: {}\n",
-                                token_metadata.symbol.replace('\n', " "),
-                                token_metadata.name.replace('\n', " ")
-                            );
-                            token_metadatas.insert(token_id.clone(), token_metadata);
-                            if token.reputation == TokenScore::Unknown {
-                                match is_spam(&meta_stringified).await {
-                                    Ok(true) => {
-                                        spam_pending.push(token_id.clone());
-                                    },
-                                    Ok(false) => {}
-                                    Err(e) => log::warn!("Failed to check spam for {token_id}: {e:?}\nDetails:\n{meta_stringified}"),
+                            if let Ok(token_metadata) = get_token_metadata(token_id.clone(), None).await {
+                                if token.reference.is_null() {
+                                    if let Some(reference) = token_metadata.reference.as_ref() {
+                                        token.reference = get_reference(reference.clone()).await.unwrap_or_default();
+                                    }
+                                }
+                                let meta_stringified = format!(
+                                    "Symbol: {}\nName: {}\n",
+                                    token_metadata.symbol.replace('\n', " "),
+                                    token_metadata.name.replace('\n', " ")
+                                );
+                                token_metadatas.insert(token_id.clone(), token_metadata);
+                                if token.reputation == TokenScore::Unknown {
+                                    match is_spam(&meta_stringified).await {
+                                        Ok(true) => {
+                                            spam_pending.push(token_id.clone());
+                                        },
+                                        Ok(false) => {}
+                                        Err(e) => log::warn!("Failed to check spam for {token_id}: {e:?}\nDetails:\n{meta_stringified}"),
+                                    }
                                 }
                             }
                         }
@@ -367,9 +415,20 @@ async fn main() -> Result<(), anyhow::Error> {
                         }
                         tokens_mut.spam_tokens.extend(spam_pending);
                     }
+                    let spam_checked_at = SystemTime::now();
 
                     *tokens.write().await = tokens_mut;
+                    let tokens_replaced_at = SystemTime::now();
                     save_tokens(&*tokens.read().await).await;
+                    let tokens_saved_at = SystemTime::now();
+
+                    log::info!("Time since start: {:?}", started_at.elapsed());
+                    log::info!("Time since pools processed: {:?}", pools_processed_at.elapsed());
+                    log::info!("Time since prices recalculated: {:?}", prices_recalculated_at.elapsed());
+                    log::info!("Time since token data updated: {:?}", token_data_updated_at.elapsed());
+                    log::info!("Time since spam checked: {:?}", spam_checked_at.elapsed());
+                    log::info!("Time since tokens replaced: {:?}", tokens_replaced_at.elapsed());
+                    log::info!("Time since tokens saved: {:?}", tokens_saved_at.elapsed());
 
                     Ok::<(), anyhow::Error>(())
                 }
