@@ -1,4 +1,3 @@
-use std::time::Duration;
 use cached::proc_macro::cached;
 use inindexer::near_indexer_primitives::{
     types::{AccountId, BlockHeight, BlockId, BlockReference, Finality},
@@ -11,6 +10,7 @@ use near_jsonrpc_client::{
 };
 use near_jsonrpc_primitives::types::query::QueryResponseKind;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 use crate::utils::get_rpc_url;
 

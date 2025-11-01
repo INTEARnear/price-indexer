@@ -5,7 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use cached::proc_macro::{cached, io_cached};
+use cached::proc_macro::{cached, once};
 use chrono::{DateTime, Utc};
 use inindexer::near_indexer_primitives::types::{AccountId, Balance, BlockHeight};
 use inindexer::near_utils::dec_format;
@@ -143,7 +143,7 @@ impl Tokens {
                         slug: Default::default(),
                         deleted: false,
                         reference: if let Some(reference) = metadata.reference.clone() {
-                            get_reference(reference).await.unwrap_or_default()
+                            get_reference(reference).await
                         } else {
                             Default::default()
                         },
@@ -246,7 +246,7 @@ impl Tokens {
                         slug: Default::default(),
                         deleted: false,
                         reference: if let Some(reference) = metadata.reference.clone() {
-                            get_reference(reference).await.unwrap_or_default()
+                            get_reference(reference).await
                         } else {
                             Default::default()
                         },
@@ -391,31 +391,38 @@ async fn get_owned_tokens(account_id: AccountId) -> HashMap<AccountId, u128> {
     }
 }
 
-#[io_cached(time = 86400, disk = true, map_error = "|e| anyhow::anyhow!(e)")]
-pub async fn get_reference(reference: String) -> Result<serde_json::Value, anyhow::Error> {
+#[once(sync_writes = true)]
+pub async fn get_reference(reference: String) -> serde_json::Value {
     if let Ok(url) = Url::parse(&reference) {
         if let Ok(response) = get_reqwest_client().get(url).send().await {
-            let mut value = response.json::<serde_json::Value>().await?;
+            let mut value = response
+                .json::<serde_json::Value>()
+                .await
+                .unwrap_or_default();
             strip_long_strings(&mut value);
-            Ok(value)
+            value
         } else {
-            anyhow::bail!("Failed to get reference from {reference}");
+            serde_json::Value::Null
         }
     } else {
         let reference = reference.trim_start_matches("/ipfs/");
         if reference.is_empty() {
-            return Ok(Default::default());
+            return serde_json::Value::Null;
         }
         if let Ok(response) = get_reqwest_client()
             .get(format!("https://ipfs.io/ipfs/{reference}"))
+            .timeout(Duration::from_secs(10))
             .send()
             .await
         {
-            let mut value = response.json::<serde_json::Value>().await?;
+            let mut value = response
+                .json::<serde_json::Value>()
+                .await
+                .unwrap_or_default();
             strip_long_strings(&mut value);
-            Ok(value)
+            value
         } else {
-            anyhow::bail!("Failed to get reference from {reference}");
+            serde_json::Value::Null
         }
     }
 }

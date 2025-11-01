@@ -1,6 +1,6 @@
-use std::time::Duration;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
+use std::time::Duration;
 
 use cached::proc_macro::io_cached;
 use inindexer::near_indexer_primitives::types::{AccountId, Balance, BlockHeight};

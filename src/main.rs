@@ -268,87 +268,128 @@ async fn main() -> Result<(), anyhow::Error> {
                     let pools_processed_at = SystemTime::now();
                     tokens_mut.recalculate_prices();
                     let prices_recalculated_at = SystemTime::now();
-                    for (token_id, token) in tokens_mut.tokens.iter_mut() {
-                        if token.deleted {
-                            continue;
-                        }
+                    
+                    // Collect tokens that need updating
+                    let tokens_to_update: Vec<(AccountId, TokenScore)> = tokens_mut
+                        .tokens
+                        .iter()
+                        .filter_map(|(token_id, token)| {
+                            if token.deleted {
+                                return None;
+                            }
 
-                        let update_interval_blocks = match (token.volume_usd_24h, recent_block_height.load(Ordering::Relaxed) - token.created_at) {
-                            (_, ..1_000) => 1,
-                            (_, ..10_000) => 10,
-                            (_, ..100_000) => 30,
-                            (..100.0, _) => 1000,
-                            (..1_000.0, _) => 200,
-                            (..10_000.0, _) => 100,
-                            (10_000.0.., _) => 60,
-                            _ => 10_000,
-                        };
-                        if i % update_interval_blocks != 0 {
-                            continue;
-                        }
+                            let update_interval_blocks = match (token.volume_usd_24h, recent_block_height.load(Ordering::Relaxed) - token.created_at) {
+                                (_, ..1_000) => 2,
+                                (_, ..10_000) => 10,
+                                (_, ..100_000) => 30,
+                                (..100.0, _) => 1000,
+                                (..1_000.0, _) => 200,
+                                (..10_000.0, _) => 100,
+                                (10_000.0.., _) => 60,
+                                _ => 10_000,
+                            };
+                            if i % update_interval_blocks != 1 {
+                                return None;
+                            }
 
-                        let token_id = token_id.clone();
-                        let reputation = token.reputation;
+                            Some((token_id.clone(), token.reputation))
+                        })
+                        .collect();
 
-                        let (
+                    const TOKEN_UPDATE_BATCH_SIZE: usize = 20;
+                    for chunk in tokens_to_update.chunks(TOKEN_UPDATE_BATCH_SIZE) {
+                        let futures: Vec<_> = chunk
+                            .iter()
+                            .map(|(token_id, reputation)| {
+                                let token_id = token_id.clone();
+                                let reputation = *reputation;
+                                async move {
+                                    let (
+                                        total_supply_result,
+                                        circulating_supply_result,
+                                        circulating_supply_excluding_team_result,
+                                        volume_24h_result,
+                                        price_24h_ago_result,
+                                    ) = tokio::join!(
+                                        get_total_supply(&token_id),
+                                        get_circulating_supply(&token_id, false),
+                                        get_circulating_supply(&token_id, true),
+                                        get_volume_24h(token_id.clone()),
+                                        get_price_24h_ago(token_id.clone()),
+                                    );
+                                    (
+                                        token_id,
+                                        reputation,
+                                        total_supply_result,
+                                        circulating_supply_result,
+                                        circulating_supply_excluding_team_result,
+                                        volume_24h_result,
+                                        price_24h_ago_result,
+                                    )
+                                }
+                            })
+                            .collect();
+
+                        let results = futures_util::future::join_all(futures).await;
+
+                        for (
+                            token_id,
+                            reputation,
                             total_supply_result,
                             circulating_supply_result,
                             circulating_supply_excluding_team_result,
                             volume_24h_result,
                             price_24h_ago_result,
-                        ) = tokio::join!(
-                            get_total_supply(&token_id),
-                            get_circulating_supply(&token_id, false),
-                            get_circulating_supply(&token_id, true),
-                            get_volume_24h(token_id.clone()),
-                            get_price_24h_ago(token_id.clone()),
-                        );
-
-                        match total_supply_result {
-                            Ok(total_supply) => token.total_supply = total_supply,
-                            Err(e) => {
-                                if reputation >= TokenScore::NotFake {
-                                    log::warn!("Failed to get total supply for {token_id}: {e:?}")
+                        ) in results
+                        {
+                            if let Some(token) = tokens_mut.tokens.get_mut(&token_id) {
+                                match total_supply_result {
+                                    Ok(total_supply) => token.total_supply = total_supply,
+                                    Err(e) => {
+                                        if reputation >= TokenScore::NotFake {
+                                            log::warn!("Failed to get total supply for {token_id}: {e:?}")
+                                        }
+                                    }
                                 }
-                            }
-                        }
 
-                        match circulating_supply_result {
-                            Ok(circulating_supply) => token.circulating_supply = circulating_supply,
-                            Err(e) => {
-                                if reputation >= TokenScore::NotFake {
-                                    log::warn!("Failed to get circulating supply for {token_id}: {e:?}")
+                                match circulating_supply_result {
+                                    Ok(circulating_supply) => token.circulating_supply = circulating_supply,
+                                    Err(e) => {
+                                        if reputation >= TokenScore::NotFake {
+                                            log::warn!("Failed to get circulating supply for {token_id}: {e:?}")
+                                        }
+                                    }
                                 }
-                            }
-                        }
 
-                        match circulating_supply_excluding_team_result {
-                            Ok(circulating_supply_excluding_team) => {
-                                token.circulating_supply_excluding_team = circulating_supply_excluding_team
-                            }
-                            Err(e) => {
-                                if reputation >= TokenScore::NotFake {
-                                    log::warn!(
-                                        "Failed to get circulating supply excluding team for {token_id}: {e:?}"
-                                    )
+                                match circulating_supply_excluding_team_result {
+                                    Ok(circulating_supply_excluding_team) => {
+                                        token.circulating_supply_excluding_team = circulating_supply_excluding_team
+                                    }
+                                    Err(e) => {
+                                        if reputation >= TokenScore::NotFake {
+                                            log::warn!(
+                                                "Failed to get circulating supply excluding team for {token_id}: {e:?}"
+                                            )
+                                        }
+                                    }
                                 }
-                            }
-                        }
 
-                        match volume_24h_result {
-                            Ok(volume_24h) => token.volume_usd_24h = volume_24h,
-                            Err(e) => {
-                                if reputation >= TokenScore::NotFake {
-                                    log::warn!("Failed to get 24h volume for {token_id}: {e:?}")
+                                match volume_24h_result {
+                                    Ok(volume_24h) => token.volume_usd_24h = volume_24h,
+                                    Err(e) => {
+                                        if reputation >= TokenScore::NotFake {
+                                            log::warn!("Failed to get 24h volume for {token_id}: {e:?}")
+                                        }
+                                    }
                                 }
-                            }
-                        }
 
-                        match price_24h_ago_result {
-                            Ok(price_24h_ago) => token.price_usd_raw_24h_ago = price_24h_ago,
-                            Err(e) => {
-                                if reputation >= TokenScore::NotFake {
-                                    log::warn!("Failed to get 24h ago price for {token_id}: {e:?}")
+                                match price_24h_ago_result {
+                                    Ok(price_24h_ago) => token.price_usd_raw_24h_ago = price_24h_ago,
+                                    Err(e) => {
+                                        if reputation >= TokenScore::NotFake {
+                                            log::warn!("Failed to get 24h ago price for {token_id}: {e:?}")
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -358,7 +399,7 @@ async fn main() -> Result<(), anyhow::Error> {
                     let mut spam_pending = Vec::new();
                     let mut token_metadatas = HashMap::new();
 
-                    if i % 1_000 == 0 {
+                    if i % 1_000 == 500 {
                         for (token_id, token) in tokens_mut.tokens.iter_mut() {
                             if token.deleted {
                                 continue;
@@ -366,7 +407,7 @@ async fn main() -> Result<(), anyhow::Error> {
                             if let Ok(token_metadata) = get_token_metadata(token_id.clone(), None).await {
                                 if token.reference.is_null() {
                                     if let Some(reference) = token_metadata.reference.as_ref() {
-                                        token.reference = get_reference(reference.clone()).await.unwrap_or_default();
+                                        token.reference = get_reference(reference.clone()).await;
                                     }
                                 }
                                 let meta_stringified = format!(
