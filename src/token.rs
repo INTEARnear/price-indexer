@@ -393,6 +393,7 @@ pub fn get_reputation(token_id: &AccountId, spam_tokens: &HashSet<AccountId>) ->
         | "chads.tkn.near"
         | "myriadcore.near"
         | "xtoken.ref-finance.near"
+        | "otoken.ref-finance.near"
         | "horny.tkn.near"
         | "token.pembrock.near"
         | "edge-fast.near"

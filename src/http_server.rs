@@ -435,10 +435,8 @@ pub async fn launch_http_server(tokens: Arc<RwLock<Tokens>>) {
                                             token: balance.contract_id,
                                             balance: if balance.balance.is_empty() {
                                                 0
-                                            } else if let Ok(balance) = balance.balance.parse::<u128>() {
-                                                balance
                                             } else {
-                                                0
+                                                balance.balance.parse::<u128>().unwrap_or_default()
                                             },
                                             source: TokenBalanceSource::Direct,
                                         }).collect::<Vec<_>>();
@@ -475,7 +473,7 @@ pub async fn launch_http_server(tokens: Arc<RwLock<Tokens>>) {
                                     QueryResponseKind::CallResult(call_result) => {
                                         let map: HashMap<AccountId, String> = serde_json::from_slice(&call_result.result).unwrap();
                                         map.into_iter().map(|(token, balance)| TokenBalanceResponse {
-                                            token: token,
+                                            token,
                                             balance: balance.parse::<u128>().unwrap_or_default(),
                                             source: TokenBalanceSource::Rhea,
                                         }).collect::<Vec<_>>()

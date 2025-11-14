@@ -53,57 +53,13 @@ async fn hardcoded_total_supply(token_id: AccountId) -> Option<Balance> {
             let response: ApiResponse = response.json().await.ok()?;
             Some(response.result)
         }
-        "wrap.near" => {
-            #[derive(Debug, Deserialize)]
-            struct ApiResponse {
-                stats: Vec<Stat>,
-            }
-
-            #[derive(Debug, Deserialize)]
-            struct Stat {
-                #[serde(with = "dec_format")]
-                total_supply: Balance,
-            }
-
-            let response = get_reqwest_client()
-                .get("https://api3.nearblocks.io/v1/stats")
-                .send()
-                .await
-                .ok()?;
-            let response: ApiResponse = response.json().await.ok()?;
-            Some(
-                response
-                    .stats
-                    .into_iter()
-                    .map(|stat| stat.total_supply)
-                    .next()?,
-            )
-        }
-        "wrap.testnet" => {
-            #[derive(Debug, Deserialize)]
-            struct ApiResponse {
-                stats: Vec<Stat>,
-            }
-
-            #[derive(Debug, Deserialize)]
-            struct Stat {
-                #[serde(with = "dec_format")]
-                total_supply: Balance,
-            }
-
-            let response = get_reqwest_client()
-                .get("https://api3-testnet.nearblocks.io/v1/stats")
-                .send()
-                .await
-                .ok()?;
-            let response: ApiResponse = response.json().await.ok()?;
-            Some(
-                response
-                    .stats
-                    .into_iter()
-                    .map(|stat| stat.total_supply)
-                    .next()?,
-            )
+        "wrap.near" | "wrap.testnet" => {
+            let client = JsonRpcClient::connect(get_rpc_url());
+            let request = methods::block::RpcBlockRequest {
+                block_reference: BlockReference::Finality(Finality::Final),
+            };
+            let response = client.call(request).await.ok()?;
+            Some(response.header.total_supply)
         }
         _ => None,
     }
@@ -128,58 +84,13 @@ async fn hardcoded_max_total_supply(token_id: AccountId) -> Option<Balance> {
 #[cached(time = 3600)]
 async fn hardcoded_circulating_supply(token_id: AccountId) -> Option<Balance> {
     match token_id.as_str() {
-        "wrap.near" => {
-            #[derive(Debug, Deserialize)]
-            struct ApiResponse {
-                stats: Vec<Stat>,
-            }
-
-            #[derive(Debug, Deserialize)]
-            struct Stat {
-                #[serde(with = "dec_format")]
-                circulating_supply: Balance,
-            }
-
-            let client = reqwest::Client::new();
-            let response = client
-                .get("https://api3.nearblocks.io/v1/stats")
-                .send()
-                .await
-                .ok()?;
-            let response: ApiResponse = response.json().await.ok()?;
-            Some(
-                response
-                    .stats
-                    .into_iter()
-                    .map(|stat| stat.circulating_supply)
-                    .next()?,
-            )
-        }
-        "wrap.testnet" => {
-            #[derive(Debug, Deserialize)]
-            struct ApiResponse {
-                stats: Vec<Stat>,
-            }
-
-            #[derive(Debug, Deserialize)]
-            struct Stat {
-                #[serde(with = "dec_format")]
-                circulating_supply: Balance,
-            }
-
-            let response = get_reqwest_client()
-                .get("https://api3-testnet.nearblocks.io/v1/stats")
-                .send()
-                .await
-                .ok()?;
-            let response: ApiResponse = response.json().await.ok()?;
-            Some(
-                response
-                    .stats
-                    .into_iter()
-                    .map(|stat| stat.circulating_supply)
-                    .next()?,
-            )
+        "wrap.near" | "wrap.testnet" => {
+            let client = JsonRpcClient::connect(get_rpc_url());
+            let request = methods::block::RpcBlockRequest {
+                block_reference: BlockReference::Finality(Finality::Final),
+            };
+            let response = client.call(request).await.ok()?;
+            Some(response.header.total_supply)
         }
         _ => None,
     }

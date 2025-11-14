@@ -88,7 +88,7 @@ async fn main() -> Result<(), anyhow::Error> {
         .collect();
 
     const BATCH_SIZE: usize = 10;
-    let total_batches = (account_ids.len() + BATCH_SIZE - 1) / BATCH_SIZE;
+    let total_batches = account_ids.len().div_ceil(BATCH_SIZE);
 
     for (batch_idx, chunk) in account_ids.chunks(BATCH_SIZE).enumerate() {
         tokio::time::sleep(Duration::from_millis(50)).await; // avoid rate limits
@@ -268,7 +268,7 @@ async fn main() -> Result<(), anyhow::Error> {
                     let pools_processed_at = SystemTime::now();
                     tokens_mut.recalculate_prices();
                     let prices_recalculated_at = SystemTime::now();
-                    
+
                     // Collect tokens that need updating
                     let tokens_to_update: Vec<(AccountId, TokenScore)> = tokens_mut
                         .tokens
