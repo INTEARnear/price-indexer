@@ -1,7 +1,6 @@
 mod http_server;
 mod network;
 mod pool_data;
-mod price_sources;
 mod supply;
 mod token;
 mod token_metadata;
@@ -161,21 +160,6 @@ async fn main() -> Result<(), anyhow::Error> {
     let cancellation_token = CancellationToken::new();
 
     let mut join_handles = Vec::new();
-
-    let cancellation_token_clone = cancellation_token.clone();
-    join_handles.push(tokio::spawn(price_sources::binance::start_binance_ws(
-        cancellation_token_clone,
-    )));
-
-    let cancellation_token_clone = cancellation_token.clone();
-    join_handles.push(tokio::spawn(
-        price_sources::jupiter::subscribe_to_solana_updates(cancellation_token_clone),
-    ));
-
-    let cancellation_token_clone = cancellation_token.clone();
-    join_handles.push(tokio::spawn(
-        price_sources::oneinch::subscribe_to_oneinch_updates(cancellation_token_clone),
-    ));
 
     join_handles.push(tokio::spawn(launch_http_server(Arc::clone(&tokens))));
 

@@ -15,7 +15,7 @@ serde = { version = "1.0.209", features = ["derive"] }
 serde_json = { version = "1.0.127" }
 chrono = { version = "0.4.38" }
 async-trait = "0.1.80"
-inindexer = "2.0.0"
+inindexer = "5.0.0"
 inevents-redis = { git = "https://github.com/INTEARnear/inevents" }
 intear-events = { git = "https://github.com/INTEARnear/intear-events" }
 redis = { version = "0.25.3", features = [
@@ -23,8 +23,8 @@ redis = { version = "0.25.3", features = [
     "connection-manager",
 ] }
 sqlx = { version = "0.8.1", features = ["bigdecimal"] }
-near-jsonrpc-client = "0.15.1"
-near-jsonrpc-primitives = "0.28.0"
+near-jsonrpc-client = "0.20.0"
+near-jsonrpc-primitives = "0.34.1"
 cached = { version = "0.56.0", features = [
     "async",
     "async_tokio_rt_multi_thread",

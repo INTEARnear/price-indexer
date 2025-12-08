@@ -16,11 +16,14 @@
 //! your smart contract logic, if 1 contract may have both circulating and not-yet-circulating tokens, like staking.
 
 use cached::proc_macro::cached;
-use inindexer::near_indexer_primitives::{
-    types::{AccountId, Balance, BlockReference, Finality},
-    views::QueryRequest,
-};
 use inindexer::near_utils::dec_format;
+use inindexer::{
+    near_indexer_primitives::{
+        types::{AccountId, BlockReference, Finality},
+        views::QueryRequest,
+    },
+    near_utils::FtBalance,
+};
 use near_jsonrpc_client::{
     errors::JsonRpcError,
     methods::{self, query::RpcQueryError},
@@ -30,36 +33,21 @@ use near_jsonrpc_primitives::types::query::QueryResponseKind;
 use serde::Deserialize;
 use std::time::Duration;
 
-use crate::{get_reqwest_client, utils::get_rpc_url};
+use crate::utils::get_rpc_url;
 
 const ZERO_ADDRESS: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
 /// Completely replaces the total supply
 #[cached(time = 3600, option = true)]
-async fn hardcoded_total_supply(token_id: AccountId) -> Option<Balance> {
+async fn hardcoded_total_supply(token_id: AccountId) -> Option<FtBalance> {
     match token_id.as_str() {
-        "aurora" | "c02aaa39b223fe8d0a0e5c4f27ead9083c756cc2.factory.bridge.near" => {
-            #[derive(Debug, Deserialize)]
-            struct ApiResponse {
-                #[serde(with = "dec_format")]
-                result: Balance,
-            }
-
-            let response = get_reqwest_client()
-                .get("https://api.etherscan.io/api?module=stats&action=ethsupply")
-                .send()
-                .await
-                .ok()?;
-            let response: ApiResponse = response.json().await.ok()?;
-            Some(response.result)
-        }
         "wrap.near" | "wrap.testnet" => {
             let client = JsonRpcClient::connect(get_rpc_url());
             let request = methods::block::RpcBlockRequest {
                 block_reference: BlockReference::Finality(Finality::Final),
             };
             let response = client.call(request).await.ok()?;
-            Some(response.header.total_supply)
+            Some(response.header.total_supply.as_yoctonear())
         }
         _ => None,
     }
@@ -67,7 +55,7 @@ async fn hardcoded_total_supply(token_id: AccountId) -> Option<Balance> {
 
 /// Replaces the total supply, but also subtracts the amount sent to burn addresses
 #[cached(time = 3600)]
-async fn hardcoded_max_total_supply(token_id: AccountId) -> Option<Balance> {
+async fn hardcoded_max_total_supply(token_id: AccountId) -> Option<FtBalance> {
     match token_id.as_str() {
         "802d89b6e511b335f05024a65161bce7efc3f311.factory.bridge.near" => {
             Some(1_000_000_000e18 as u128)
@@ -82,7 +70,7 @@ async fn hardcoded_max_total_supply(token_id: AccountId) -> Option<Balance> {
 
 /// Completely replaces the circulating supply
 #[cached(time = 3600)]
-async fn hardcoded_circulating_supply(token_id: AccountId) -> Option<Balance> {
+async fn hardcoded_circulating_supply(token_id: AccountId) -> Option<FtBalance> {
     match token_id.as_str() {
         "wrap.near" | "wrap.testnet" => {
             let client = JsonRpcClient::connect(get_rpc_url());
@@ -90,7 +78,7 @@ async fn hardcoded_circulating_supply(token_id: AccountId) -> Option<Balance> {
                 block_reference: BlockReference::Finality(Finality::Final),
             };
             let response = client.call(request).await.ok()?;
-            Some(response.header.total_supply)
+            Some(response.header.total_supply.as_yoctonear())
         }
         _ => None,
     }
@@ -98,7 +86,7 @@ async fn hardcoded_circulating_supply(token_id: AccountId) -> Option<Balance> {
 
 /// This amount is subtracted from the circulating supply
 #[cached(time = 3600)]
-async fn hardcoded_additional_non_circulating_supply(token_id: AccountId) -> Option<Balance> {
+async fn hardcoded_additional_non_circulating_supply(token_id: AccountId) -> Option<FtBalance> {
     match token_id.as_str() {
         "802d89b6e511b335f05024a65161bce7efc3f311.factory.bridge.near" => {
             // https://etherscan.io/address/0x4663f0fd29ba8d14c9a734175e5e9550425c0ba4
@@ -230,7 +218,7 @@ pub enum SupplyError {
     ResponseDeserializationError(#[allow(dead_code)] serde_json::Error),
 }
 
-pub async fn get_total_supply(token_id: &AccountId) -> Result<Balance, SupplyError> {
+pub async fn get_total_supply(token_id: &AccountId) -> Result<FtBalance, SupplyError> {
     if let Some(hardcoded_total_supply) = hardcoded_total_supply(token_id.clone()).await {
         return Ok(hardcoded_total_supply);
     }
@@ -244,7 +232,7 @@ pub async fn get_total_supply(token_id: &AccountId) -> Result<Balance, SupplyErr
 pub async fn get_circulating_supply(
     token_id: &AccountId,
     exclude_team: bool,
-) -> Result<Balance, SupplyError> {
+) -> Result<FtBalance, SupplyError> {
     if let Some(hardcoded_circulating_supply) = hardcoded_circulating_supply(token_id.clone()).await
     {
         return Ok(hardcoded_circulating_supply);
@@ -266,7 +254,7 @@ pub async fn get_circulating_supply(
 
 // TODO refresh on mint and burn events
 #[cached(time = 3600, result = true)]
-pub async fn get_ft_total_supply(token_id: AccountId) -> Result<Balance, SupplyError> {
+pub async fn get_ft_total_supply(token_id: AccountId) -> Result<FtBalance, SupplyError> {
     if let Some(hardcoded_max_total_supply) = hardcoded_max_total_supply(token_id.clone()).await {
         return Ok(hardcoded_max_total_supply);
     }
@@ -294,7 +282,7 @@ pub async fn get_ft_total_supply(token_id: AccountId) -> Result<Balance, SupplyE
 }
 
 #[cached(time = 86400, result = true)]
-pub async fn get_sent_to_burn_addresses(token_id: AccountId) -> Result<Balance, SupplyError> {
+pub async fn get_sent_to_burn_addresses(token_id: AccountId) -> Result<FtBalance, SupplyError> {
     let burn_addrs = burn_addresses(&token_id);
 
     let mut futures = Vec::new();
@@ -310,7 +298,7 @@ pub async fn get_sent_to_burn_addresses(token_id: AccountId) -> Result<Balance, 
 pub async fn get_excluded_supply(
     token_id: AccountId,
     exclude_team: bool,
-) -> Result<Balance, SupplyError> {
+) -> Result<FtBalance, SupplyError> {
     let locked_addrs = locked_addresses(&token_id);
     let team_addrs = if exclude_team {
         team_addresses(&token_id)
@@ -332,7 +320,7 @@ pub async fn get_excluded_supply(
 }
 
 #[cached(time = 60, result = true)]
-async fn get_balance(token_id: AccountId, account_id: AccountId) -> Result<Balance, SupplyError> {
+async fn get_balance(token_id: AccountId, account_id: AccountId) -> Result<FtBalance, SupplyError> {
     let client = JsonRpcClient::connect(get_rpc_url());
     let request = methods::query::RpcQueryRequest {
         block_reference: BlockReference::Finality(Finality::None),
@@ -361,4 +349,4 @@ async fn get_balance(token_id: AccountId, account_id: AccountId) -> Result<Balan
 }
 
 #[derive(Debug, Deserialize)]
-struct StringifiedBalance(#[serde(with = "dec_format")] Balance);
+struct StringifiedBalance(#[serde(with = "dec_format")] FtBalance);

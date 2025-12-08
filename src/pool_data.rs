@@ -11,9 +11,10 @@ use crate::{
     utils::{get_rpc_url, serde_bigdecimal_tuple2},
 };
 use cached::proc_macro::cached;
+use inindexer::near_utils::FtBalance;
 use inindexer::{
     near_indexer_primitives::{
-        types::{AccountId, Balance, BlockHeight, BlockId, BlockReference, Finality},
+        types::{AccountId, BlockHeight, BlockId, BlockReference, Finality},
         views::QueryRequest,
     },
     near_utils::dec_format,
@@ -28,7 +29,7 @@ use sqlx::types::BigDecimal;
 #[cached(time = 1, result = true)]
 pub async fn get_degens(
     block_height: Option<BlockHeight>,
-) -> Result<HashMap<AccountId, Balance>, anyhow::Error> {
+) -> Result<HashMap<AccountId, FtBalance>, anyhow::Error> {
     let client = JsonRpcClient::connect(get_rpc_url());
     let request = methods::query::RpcQueryRequest {
         block_reference: if let Some(block_height) = block_height {
@@ -46,7 +47,7 @@ pub async fn get_degens(
     #[derive(Deserialize, Debug)]
     struct DegenTokenInfo {
         #[serde(with = "dec_format")]
-        pub degen_price: Balance,
+        pub degen_price: FtBalance,
     }
 
     let response = client.call(request).await?;
@@ -64,7 +65,7 @@ pub async fn get_degens(
 #[cached(time = 1, result = true)]
 pub async fn get_rates(
     block_height: Option<BlockHeight>,
-) -> Result<HashMap<AccountId, Balance>, anyhow::Error> {
+) -> Result<HashMap<AccountId, FtBalance>, anyhow::Error> {
     let client = JsonRpcClient::connect(get_rpc_url());
     let request = methods::query::RpcQueryRequest {
         block_reference: if let Some(block_height) = block_height {
@@ -82,7 +83,7 @@ pub async fn get_rates(
     #[derive(Deserialize, Debug)]
     struct RatedTokenInfo {
         #[serde(with = "dec_format")]
-        pub rate_price: Balance,
+        pub rate_price: FtBalance,
     }
 
     let response = client.call(request).await?;
@@ -331,13 +332,13 @@ pub async fn extract_pool_data(
 
                     let precision = BigDecimal::from_u128(10u128.pow(24))?;
 
-                    let mul_rated = |amount: Balance, rate: Balance| -> Option<BigDecimal> {
+                    let mul_rated = |amount: FtBalance, rate: FtBalance| -> Option<BigDecimal> {
                         let amount_bd = BigDecimal::from_u128(amount)?;
                         let rate_bd = BigDecimal::from_u128(rate)?;
                         Some(amount_bd * rate_bd / &precision)
                     };
 
-                    let div_rated = |amount: &BigDecimal, rate: Balance| -> Option<BigDecimal> {
+                    let div_rated = |amount: &BigDecimal, rate: FtBalance| -> Option<BigDecimal> {
                         let rate_bd = BigDecimal::from_u128(rate)?;
                         Some(amount * &precision / rate_bd)
                     };
@@ -451,13 +452,13 @@ pub async fn extract_pool_data(
 
                     let precision = BigDecimal::from_u128(10u128.pow(24))?;
 
-                    let mul_degen = |amount: Balance, degen: Balance| -> Option<BigDecimal> {
+                    let mul_degen = |amount: FtBalance, degen: FtBalance| -> Option<BigDecimal> {
                         let amount_bd = BigDecimal::from_u128(amount)?;
                         let degen_bd = BigDecimal::from_u128(degen)?;
                         Some(amount_bd * degen_bd / &precision)
                     };
 
-                    let div_degen = |amount: &BigDecimal, degen: Balance| -> Option<BigDecimal> {
+                    let div_degen = |amount: &BigDecimal, degen: FtBalance| -> Option<BigDecimal> {
                         let degen_bd = BigDecimal::from_u128(degen)?;
                         Some(amount * &precision / degen_bd)
                     };

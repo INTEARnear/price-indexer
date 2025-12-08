@@ -7,8 +7,8 @@ use std::{
 
 use cached::proc_macro::{cached, once};
 use chrono::{DateTime, Utc};
-use inindexer::near_indexer_primitives::types::{AccountId, Balance, BlockHeight};
-use inindexer::near_utils::dec_format;
+use inindexer::near_indexer_primitives::types::{AccountId, BlockHeight};
+use inindexer::near_utils::{dec_format, FtBalance};
 use intear_events::events::trade::trade_pool_change::PoolType;
 use itertools::Itertools;
 use num_traits::ToPrimitive;
@@ -364,7 +364,7 @@ async fn get_owned_tokens(account_id: AccountId) -> HashMap<AccountId, u128> {
         last_update_block_height: Option<BlockHeight>,
         contract_id: AccountId,
         #[serde(with = "dec_format")]
-        balance: Balance,
+        balance: FtBalance,
     }
 
     let url = if is_testnet() {

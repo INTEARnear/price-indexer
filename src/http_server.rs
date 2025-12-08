@@ -6,9 +6,12 @@ use actix_web::{
     web::{self, redirect},
     App, HttpResponse, HttpServer, Route,
 };
-use inindexer::near_indexer_primitives::{
-    types::{AccountId, Balance, BlockReference, Finality},
-    views::QueryRequest,
+use inindexer::{
+    near_indexer_primitives::{
+        types::{AccountId, BlockReference, Finality},
+        views::QueryRequest,
+    },
+    near_utils::FtBalance,
 };
 use itertools::Itertools;
 use near_jsonrpc_client::{methods::query::RpcQueryRequest, JsonRpcClient};
@@ -417,7 +420,7 @@ pub async fn launch_http_server(tokens: Arc<RwLock<Tokens>>) {
                             #[derive(Debug)]
                             struct TokenBalanceResponse {
                                 token: AccountId,
-                                balance: Balance,
+                                balance: FtBalance,
                                 source: TokenBalanceSource,
                             }
 
