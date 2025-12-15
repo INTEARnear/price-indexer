@@ -72,6 +72,7 @@ async fn main() -> Result<(), anyhow::Error> {
         .unwrap();
 
     let mut tokens = load_tokens().await.expect("Failed to load tokens");
+    add_tokens_from_env(&mut tokens).await;
     log::info!("Updating metadata of {} tokens", tokens.tokens.len());
 
     let account_ids: Vec<AccountId> = tokens
@@ -501,6 +502,38 @@ async fn load_tokens() -> Result<Tokens, anyhow::Error> {
         }
         tokens
     })
+}
+
+async fn add_tokens_from_env(tokens: &mut Tokens) {
+    let raw = match std::env::var("TOKENS_TO_ADD") {
+        Ok(value) => value,
+        Err(_) => return,
+    };
+
+    let mut added = Vec::new();
+    let mut failed = Vec::new();
+
+    for token_id in raw.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+        match token_id.parse::<AccountId>() {
+            Ok(account_id) => {
+                if tokens.add_token(&account_id, true, 0).await {
+                    added.push(account_id.to_string());
+                } else {
+                    failed.push(account_id.to_string());
+                }
+            }
+            Err(err) => {
+                log::warn!("Failed to parse token id '{token_id}' from TOKENS_TO_ADD: {err}");
+            }
+        }
+    }
+
+    if !added.is_empty() {
+        log::info!("TOKENS_TO_ADD: added tokens {}", added.join(", "));
+    }
+    if !failed.is_empty() {
+        log::warn!("TOKENS_TO_ADD: failed to add {}", failed.join(", "));
+    }
 }
 
 async fn save_tokens(tokens: &Tokens) {
