@@ -91,7 +91,7 @@ async fn main() -> Result<(), anyhow::Error> {
     let total_batches = account_ids.len().div_ceil(BATCH_SIZE);
 
     for (batch_idx, chunk) in account_ids.chunks(BATCH_SIZE).enumerate() {
-        tokio::time::sleep(Duration::from_millis(50)).await; // avoid rate limits
+        tokio::time::sleep(Duration::from_millis(100)).await; // avoid rate limits
         log::info!(
             "Processing batch {}/{} ({} tokens)",
             batch_idx + 1,

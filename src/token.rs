@@ -331,7 +331,6 @@ pub fn get_reputation(token_id: &AccountId, spam_tokens: &HashSet<AccountId>) ->
         | "jlu-1018.meme-cooking.near"
         | "duct-1078.meme-cooking.near"
         | "benthedog.near"
-        | "aurora"
         | "token.burrow.near"
         | "token.v2.ref-finance.near"
         | "intel.tkn.near"
@@ -347,6 +346,7 @@ pub fn get_reputation(token_id: &AccountId, spam_tokens: &HashSet<AccountId>) ->
         | "marmaj.tkn.near"
         | "token.intear.near"
         | "xtoken.rhealab.near"
+        | "pool.intear.near"
         | "853d955acef822db058eb8505911ed77f175b99e.factory.bridge.near" => TokenScore::NotFake,
         "token.lonkingnearbackto2024.near"
         | "token.sweat"
@@ -363,6 +363,7 @@ pub fn get_reputation(token_id: &AccountId, spam_tokens: &HashSet<AccountId>) ->
         | "token.rhealab.near"
         | "lst.rhealab.near"
         | "npro.nearmobile.near"
+        | "aaaaaa20d9e0e2461697782ef11675f668207961.factory.bridge.near"
         | "token.publicailab.near" => TokenScore::Reputable,
         _ if spam_tokens.contains(token_id) => TokenScore::Spam,
         _ => TokenScore::Unknown,

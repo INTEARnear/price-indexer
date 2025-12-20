@@ -6,6 +6,7 @@ use actix_web::{
     web::{self, redirect},
     App, HttpResponse, HttpServer, Route,
 };
+use base64::{prelude::BASE64_STANDARD, Engine};
 use inindexer::{
     near_indexer_primitives::{
         types::{AccountId, BlockReference, Finality},
@@ -623,6 +624,8 @@ fn serialize_with_icon(token: &Token) -> serde_json::Value {
             "reference": token.metadata.reference,
             "icon": if token.account_id == "wrap.near" || token.account_id == "wrap.testnet" {
                 Some(WRAP_NEAR_ICON.to_string())
+            } else if token.account_id == "ztarknear-1845.meme-cooking.near" {
+                Some(format!("data:image/webp;base64,{}", BASE64_STANDARD.encode(include_bytes!("../icon_overrides/ztarknear-1845.meme-cooking.near.webp"))))
             } else {
                 token.metadata.icon.clone()
             },
