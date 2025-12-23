@@ -7,8 +7,7 @@ use std::{
 
 use crate::{
     network::is_testnet,
-    token_metadata::get_token_metadata,
-    utils::{get_rpc_url, serde_bigdecimal_tuple2},
+    utils::{dec_format_tuple2, get_rpc_url, serde_bigdecimal_tuple2},
 };
 use cached::proc_macro::cached;
 use inindexer::near_utils::FtBalance;
@@ -103,8 +102,8 @@ pub struct PoolData {
     pub tokens: (AccountId, AccountId),
     #[serde(with = "serde_bigdecimal_tuple2")]
     pub ratios: (BigDecimal, BigDecimal),
-    #[serde(with = "serde_bigdecimal_tuple2")]
-    pub liquidity: (BigDecimal, BigDecimal),
+    #[serde(with = "dec_format_tuple2")]
+    pub liquidity: (FtBalance, FtBalance),
 }
 
 pub async fn extract_pool_data(
@@ -250,14 +249,14 @@ pub async fn extract_pool_data(
                     ) else {
                         return None;
                     };
-                    let amount0 = BigDecimal::from_str(&amount0.to_string()).ok()?;
-                    let amount1 = BigDecimal::from_str(&amount1.to_string()).ok()?;
-
-                    if amount0 == 0.into() || amount1 == 0.into() {
+                    if amount0 == 0 || amount1 == 0 {
                         return None;
                     }
-                    let token0_in_1_token1 = amount0.clone() / amount1.clone();
-                    let token1_in_1_token0 = amount1.clone() / amount0.clone();
+                    let amount0_bd = BigDecimal::from_str(&amount0.to_string()).ok()?;
+                    let amount1_bd = BigDecimal::from_str(&amount1.to_string()).ok()?;
+
+                    let token0_in_1_token1 = amount0_bd.clone() / amount1_bd.clone();
+                    let token1_in_1_token0 = amount1_bd.clone() / amount0_bd.clone();
                     Some(PoolData {
                         tokens: (token0, token1),
                         ratios: (token0_in_1_token1, token1_in_1_token0),
@@ -268,15 +267,9 @@ pub async fn extract_pool_data(
                     if pool.token_account_ids.len() != 2 {
                         return None;
                     }
-
-                    let (token0_metadata, token1_metadata) = tokio::join!(
-                        get_token_metadata(pool.token_account_ids[0].clone(), block_height),
-                        get_token_metadata(pool.token_account_ids[1].clone(), block_height),
-                    );
-                    let decimals = [
-                        token0_metadata.ok()?.decimals,
-                        token1_metadata.ok()?.decimals,
-                    ];
+                    let Ok(decimals) = <[u8; 2]>::try_from(pool.token_decimals.clone()) else {
+                        return None;
+                    };
 
                     let ratios = [(1, 0), (0, 1)]
                         .iter()
@@ -310,11 +303,23 @@ pub async fn extract_pool_data(
                             };
 
                             Some(
-                                dy / BigDecimal::from_u128(10u128.pow(decimals[token_in_idx]))?
-                                    * BigDecimal::from_u128(10u128.pow(decimals[token_out_idx]))?,
+                                dy / BigDecimal::from_u128(
+                                    10u128.pow(decimals[token_in_idx] as u32),
+                                )? * BigDecimal::from_u128(
+                                    10u128.pow(decimals[token_out_idx] as u32),
+                                )?,
                             )
                         })
                         .collect::<Option<Vec<_>>>()?;
+
+                    let target_decimal = 18;
+                    let to_real_liquidity =
+                        |amount: FtBalance, token_idx: usize| -> Option<FtBalance> {
+                            let amount_bd = BigDecimal::from_u128(amount)?;
+                            (amount_bd / BigDecimal::from_u128(10u128.pow(target_decimal))?
+                                * BigDecimal::from_u128(10u128.pow(decimals[token_idx] as u32))?)
+                            .to_u128()
+                        };
 
                     Some(PoolData {
                         tokens: (
@@ -322,7 +327,10 @@ pub async fn extract_pool_data(
                             pool.token_account_ids[1].clone(),
                         ),
                         ratios: (ratios[0].clone(), ratios[1].clone()),
-                        liquidity: (pool.c_amounts[0].into(), pool.c_amounts[1].into()),
+                        liquidity: (
+                            to_real_liquidity(pool.c_amounts[0], 0)?,
+                            to_real_liquidity(pool.c_amounts[1], 1)?,
+                        ),
                     })
                 }
                 RefPool::RatedSwapPool(pool) => {
@@ -343,11 +351,7 @@ pub async fn extract_pool_data(
                         Some(amount * &precision / rate_bd)
                     };
 
-                    let (token0_metadata, token1_metadata, rates) = tokio::join!(
-                        get_token_metadata(pool.token_account_ids[0].clone(), block_height),
-                        get_token_metadata(pool.token_account_ids[1].clone(), block_height),
-                        get_rates(block_height),
-                    );
+                    let rates = get_rates(block_height).await;
                     println!("RATES: {:?}", rates);
                     let rates = rates.ok()?;
                     let rates = vec![
@@ -361,10 +365,9 @@ pub async fn extract_pool_data(
                             .unwrap_or(precision.to_u128()?),
                     ];
                     println!("RATES (): {:?}", rates);
-                    let decimals = [
-                        token0_metadata.ok()?.decimals,
-                        token1_metadata.ok()?.decimals,
-                    ];
+                    let Ok(decimals) = <[u8; 2]>::try_from(pool.token_decimals.clone()) else {
+                        return None;
+                    };
                     let current_c_amounts_rated = pool
                         .c_amounts
                         .iter()
@@ -415,25 +418,26 @@ pub async fn extract_pool_data(
                             };
                             let amount_swapped = div_rated(&dy, rate_out)?;
 
-                            println!("amount in (rated): {}", token_in_amount_rated);
-                            println!("amount out (rated): {}", dy);
-                            println!("y: {}", y);
-                            println!("dy: {}", dy);
-                            println!("amount_swapped: {}", amount_swapped);
-                            println!(
-                                "RATEDSWAP: 1 x {} = {} {}",
-                                pool.token_account_ids[token_in_idx],
-                                amount_swapped,
-                                pool.token_account_ids[token_out_idx]
-                            );
-
                             Some(
                                 amount_swapped
-                                    / BigDecimal::from_u128(10u128.pow(decimals[token_in_idx]))?
-                                    * BigDecimal::from_u128(10u128.pow(decimals[token_out_idx]))?,
+                                    / BigDecimal::from_u128(
+                                        10u128.pow(decimals[token_in_idx] as u32),
+                                    )?
+                                    * BigDecimal::from_u128(
+                                        10u128.pow(decimals[token_out_idx] as u32),
+                                    )?,
                             )
                         })
                         .collect::<Option<Vec<_>>>()?;
+
+                    let target_decimal = 24;
+                    let to_real_liquidity =
+                        |amount: FtBalance, token_idx: usize| -> Option<FtBalance> {
+                            let amount_bd = BigDecimal::from_u128(amount)?;
+                            (amount_bd / BigDecimal::from_u128(10u128.pow(target_decimal))?
+                                * BigDecimal::from_u128(10u128.pow(decimals[token_idx] as u32))?)
+                            .to_u128()
+                        };
 
                     Some(PoolData {
                         tokens: (
@@ -441,7 +445,10 @@ pub async fn extract_pool_data(
                             pool.token_account_ids[1].clone(),
                         ),
                         ratios: (ratios[0].clone(), ratios[1].clone()),
-                        liquidity: (pool.c_amounts[0].into(), pool.c_amounts[1].into()),
+                        liquidity: (
+                            to_real_liquidity(pool.c_amounts[0], 0)?,
+                            to_real_liquidity(pool.c_amounts[1], 1)?,
+                        ),
                     })
                 }
                 RefPool::DegenSwapPool(pool) => {
@@ -463,21 +470,16 @@ pub async fn extract_pool_data(
                         Some(amount * &precision / degen_bd)
                     };
 
-                    let (token0_metadata, token1_metadata, degens) = tokio::join!(
-                        get_token_metadata(pool.token_account_ids[0].clone(), block_height),
-                        get_token_metadata(pool.token_account_ids[1].clone(), block_height),
-                        get_degens(block_height),
-                    );
+                    let degens = get_degens(block_height).await;
                     println!("DEGENS: {:?}", degens);
                     let degens = degens.ok()?;
                     let degens = [
                         degens.get(&pool.token_account_ids[0]).copied()?,
                         degens.get(&pool.token_account_ids[1]).copied()?,
                     ];
-                    let decimals = [
-                        token0_metadata.ok()?.decimals,
-                        token1_metadata.ok()?.decimals,
-                    ];
+                    let Ok(decimals) = <[u8; 2]>::try_from(pool.token_decimals.clone()) else {
+                        return None;
+                    };
                     let current_c_amounts_degen = pool
                         .c_amounts
                         .iter()
@@ -540,11 +542,24 @@ pub async fn extract_pool_data(
 
                             Some(
                                 amount_swapped
-                                    / BigDecimal::from_u128(10u128.pow(decimals[token_in_idx]))?
-                                    * BigDecimal::from_u128(10u128.pow(decimals[token_out_idx]))?,
+                                    / BigDecimal::from_u128(
+                                        10u128.pow(decimals[token_in_idx] as u32),
+                                    )?
+                                    * BigDecimal::from_u128(
+                                        10u128.pow(decimals[token_out_idx] as u32),
+                                    )?,
                             )
                         })
                         .collect::<Option<Vec<_>>>()?;
+
+                    let target_decimal = 24;
+                    let to_real_liquidity =
+                        |amount: FtBalance, token_idx: usize| -> Option<FtBalance> {
+                            let amount_bd = BigDecimal::from_u128(amount)?;
+                            (amount_bd / BigDecimal::from_u128(10u128.pow(target_decimal))?
+                                * BigDecimal::from_u128(10u128.pow(decimals[token_idx] as u32))?)
+                            .to_u128()
+                        };
 
                     Some(PoolData {
                         tokens: (
@@ -552,7 +567,10 @@ pub async fn extract_pool_data(
                             pool.token_account_ids[1].clone(),
                         ),
                         ratios: (ratios[0].clone(), ratios[1].clone()),
-                        liquidity: (pool.c_amounts[0].into(), pool.c_amounts[1].into()),
+                        liquidity: (
+                            to_real_liquidity(pool.c_amounts[0], 0)?,
+                            to_real_liquidity(pool.c_amounts[1], 1)?,
+                        ),
                     })
                 }
             }
@@ -569,18 +587,19 @@ pub async fn extract_pool_data(
                         pool.token_id.clone(),
                     ),
                     ratios: (0.into(), 0.into()),
-                    liquidity: (0.into(), 0.into()),
+                    liquidity: (0, 0),
                 });
             }
 
-            let amount0 = BigDecimal::from_str(&pool.wnear_hold.to_string()).ok()?;
-            let amount1 = BigDecimal::from_str(&pool.token_hold.to_string()).ok()?;
-
-            if amount0 == 0.into() || amount1 == 0.into() {
+            if pool.wnear_hold == 0 || pool.token_hold == 0 {
                 return None;
             }
-            let token0_in_1_token1 = amount0.clone() / amount1.clone();
-            let token1_in_1_token0 = amount1.clone() / amount0.clone();
+
+            let amount0_bd = BigDecimal::from_str(&pool.wnear_hold.to_string()).ok()?;
+            let amount1_bd = BigDecimal::from_str(&pool.token_hold.to_string()).ok()?;
+
+            let token0_in_1_token1 = amount0_bd.clone() / amount1_bd.clone();
+            let token1_in_1_token0 = amount1_bd.clone() / amount0_bd.clone();
 
             Some(PoolData {
                 tokens: (
@@ -592,7 +611,7 @@ pub async fn extract_pool_data(
                     pool.token_id.clone(),
                 ),
                 ratios: (token0_in_1_token1, token1_in_1_token0),
-                liquidity: (amount0, amount1),
+                liquidity: (pool.wnear_hold, pool.token_hold),
             })
         }
     }

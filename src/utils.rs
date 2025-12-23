@@ -55,6 +55,29 @@ pub mod serde_bigdecimal_tuple2 {
     }
 }
 
+pub mod dec_format_tuple2 {
+    use inindexer::near_utils::FtBalance;
+    use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S>(value: &(FtBalance, FtBalance), serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        (value.0.to_string(), value.1.to_string()).serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<(FtBalance, FtBalance), D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let tuple = <(String, String)>::deserialize(deserializer)?;
+        Ok((
+            tuple.0.parse::<u128>().map_err(D::Error::custom)?,
+            tuple.1.parse::<u128>().map_err(D::Error::custom)?,
+        ))
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SupportedTokensRequest {
     pub chains: Vec<String>,

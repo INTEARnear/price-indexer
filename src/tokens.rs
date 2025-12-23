@@ -63,18 +63,18 @@ impl Tokens {
         }
     }
 
-    pub fn recalculate_token(&self, token_id: &AccountId) -> (Option<String>, BigDecimal) {
-        let mut max_liquidity = 0.into();
-        let mut total_liquidity = 0.into();
+    pub fn recalculate_token(&self, token_id: &AccountId) -> (Option<String>, FtBalance) {
+        let mut max_liquidity = 0;
+        let mut total_liquidity = 0;
         let mut max_pool = None;
         for (pool_id, (_pool, pool_data)) in &self.pools {
             if pool_data.tokens.0 == *token_id {
-                let liquidity = pool_data.liquidity.0.clone();
+                let liquidity = pool_data.liquidity.0;
                 if liquidity >= max_liquidity
                     && (self.routes_to_usd.contains_key(&pool_data.tokens.1)
                         || pool_data.tokens.1 == network::get_usd_token())
                 {
-                    max_liquidity = liquidity.clone();
+                    max_liquidity = liquidity;
                     max_pool = Some(pool_id.clone());
                 }
                 total_liquidity += liquidity;
@@ -82,9 +82,9 @@ impl Tokens {
                 && (self.routes_to_usd.contains_key(&pool_data.tokens.0)
                     || pool_data.tokens.0 == network::get_usd_token())
             {
-                let liquidity = pool_data.liquidity.1.clone();
+                let liquidity = pool_data.liquidity.1;
                 if liquidity > max_liquidity {
-                    max_liquidity = liquidity.clone();
+                    max_liquidity = liquidity;
                     max_pool = Some(pool_id.clone());
                 }
                 total_liquidity += liquidity;
@@ -149,6 +149,7 @@ impl Tokens {
                         },
                         metadata,
                         liquidity_usd: 0.0,
+                        liquidity: 0,
                         volume_usd_24h: 0.0,
                         created_at: current_block_height,
                     },
@@ -215,11 +216,13 @@ impl Tokens {
                         .unwrap();
                 token.price_usd_hardcoded = price_usd_hardcoded;
                 token.main_pool = Some(pool);
-                token.liquidity_usd =
-                    ToPrimitive::to_f64(&(token_liquidity * token.price_usd_raw.clone()))
-                        .unwrap_or_default()
-                        / 10f64.powi(network::get_usd_decimals() as i32)
-                        * 2f64;
+                token.liquidity_usd = ToPrimitive::to_f64(
+                    &(token_liquidity * token.price_usd_raw.clone()
+                        / BigDecimal::from(10).powi(network::get_usd_decimals() as i64)
+                        * BigDecimal::from(2)),
+                )
+                .unwrap_or_default();
+                token.liquidity = token_liquidity;
             } else if let Some(token) = self.tokens.get_mut(&token_id) {
                 token.main_pool = None;
             } else if let Ok(metadata) =
@@ -252,6 +255,7 @@ impl Tokens {
                         },
                         metadata,
                         liquidity_usd: 0.0,
+                        liquidity: 0,
                         volume_usd_24h: 0.0,
                         created_at: current_block_height,
                     },

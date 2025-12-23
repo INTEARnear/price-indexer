@@ -78,6 +78,8 @@ pub struct Token {
     pub reference: serde_json::Value,
     #[serde(default)]
     pub liquidity_usd: f64,
+    #[serde(default, with = "dec_format")]
+    pub liquidity: FtBalance,
     #[serde(default)]
     pub volume_usd_24h: f64,
     #[serde(default)]
