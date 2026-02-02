@@ -18,7 +18,9 @@ use inindexer::{
     },
     near_utils::dec_format,
 };
-use intear_events::events::trade::trade_pool_change::{PoolType, RefPool};
+use intear_events::events::trade::trade_pool_change::{
+    IntearAssetId, IntearPlachPool, PoolType, RefPool,
+};
 use near_jsonrpc_client::{methods, JsonRpcClient};
 use near_jsonrpc_primitives::types::query::QueryResponseKind;
 use num_traits::{FromPrimitive, One, ToPrimitive, Zero};
@@ -612,6 +614,43 @@ pub async fn extract_pool_data(
                 ),
                 ratios: (token0_in_1_token1, token1_in_1_token0),
                 liquidity: (pool.wnear_hold, pool.token_hold),
+            })
+        }
+        PoolType::IntearPlach(pool) => {
+            let assets = match pool {
+                IntearPlachPool::Private {
+                    assets,
+                    fees: _,
+                    owner_id: _,
+                } => assets,
+                IntearPlachPool::Public {
+                    assets,
+                    fees: _,
+                    total_shares: _,
+                } => assets,
+            };
+            if assets.0.balance == 0 || assets.1.balance == 0 {
+                return None;
+            }
+            let amount0_bd = BigDecimal::from_str(&assets.0.balance.to_string()).ok()?;
+            let amount1_bd = BigDecimal::from_str(&assets.1.balance.to_string()).ok()?;
+            let token0 = match &assets.0.asset_id {
+                IntearAssetId::Near => "near".parse().unwrap(),
+                IntearAssetId::Nep141(token_id) => token_id.clone(),
+                _ => return None,
+            };
+            let token1 = match &assets.1.asset_id {
+                IntearAssetId::Near => "near".parse().unwrap(),
+                IntearAssetId::Nep141(token_id) => token_id.clone(),
+                _ => return None,
+            };
+
+            let token0_in_1_token1 = amount0_bd.clone() / amount1_bd.clone();
+            let token1_in_1_token0 = amount1_bd.clone() / amount0_bd.clone();
+            Some(PoolData {
+                tokens: (token0, token1),
+                ratios: (token0_in_1_token1, token1_in_1_token0),
+                liquidity: (assets.0.balance, assets.1.balance),
             })
         }
     }
