@@ -15,7 +15,10 @@ use inindexer::{
     near_utils::FtBalance,
 };
 use itertools::Itertools;
-use near_jsonrpc_client::{methods::query::RpcQueryRequest, JsonRpcClient};
+use near_jsonrpc_client::{
+    methods::query::{RpcQueryRequest, RpcQueryResponse},
+    JsonRpcClient,
+};
 use near_jsonrpc_primitives::types::query::QueryResponseKind;
 use serde::{Deserialize, Deserializer, Serialize};
 use tokio::sync::RwLock;
@@ -487,12 +490,36 @@ pub async fn launch_http_server(tokens: Arc<RwLock<Tokens>>) {
                                 .unwrap_or_default()
                             };
 
+                            let account_id = query.account_id.clone();
+                            let native = async move {
+                                let client = JsonRpcClient::connect(get_rpc_url());
+                                let balance = match client.call(RpcQueryRequest {
+                                    block_reference: BlockReference::Finality(Finality::None),
+                                    request: QueryRequest::ViewAccount {
+                                        account_id: account_id.clone(),
+                                    },
+                                }).await {
+                                    Ok(RpcQueryResponse { kind: QueryResponseKind::ViewAccount(view_account), .. }) => {
+                                        view_account.amount.as_yoctonear()
+                                    }
+                                    _ => 0,
+                                };
+                                vec![TokenBalanceResponse {
+                                    token: "near".parse().unwrap(),
+                                    balance,
+                                    source: TokenBalanceSource::Native,
+                                }]
+                            };
+
                             let mut sources = vec![];
                             if query.direct {
                                 sources.push(tokio::spawn(direct));
                             }
                             if query.rhea {
                                 sources.push(tokio::spawn(rhea));
+                            }
+                            if query.native {
+                                sources.push(tokio::spawn(native));
                             }
 
                             let balances = futures_util::future::join_all(sources).await;
@@ -504,6 +531,23 @@ pub async fn launch_http_server(tokens: Arc<RwLock<Tokens>>) {
                                     if let Some(token_info) = tokens.tokens.get(&balance.token) {
                                         Some(serde_json::json!({
                                             "token": serialize_with_icon(token_info),
+                                            "balance": balance.balance.to_string(),
+                                            "source": balance.source,
+                                        }))
+                                    } else if matches!(balance.source, TokenBalanceSource::Native) {
+                                        let wrap_id: AccountId = if is_testnet() {
+                                            "wrap.testnet".parse().unwrap()
+                                        } else {
+                                            "wrap.near".parse().unwrap()
+                                        };
+                                        let mut native_token = tokens.tokens.get(&wrap_id).unwrap().clone();
+                                        native_token.account_id = balance.token;
+                                        native_token.metadata.symbol = "NEAR".to_string();
+                                        native_token.metadata.name = "NEAR".to_string();
+                                        native_token.main_pool = None;
+                                        native_token.created_at = 0;
+                                        Some(serde_json::json!({
+                                            "token": serialize_with_icon(&native_token),
                                             "balance": balance.balance.to_string(),
                                             "source": balance.source,
                                         }))
@@ -651,6 +695,8 @@ struct GetUserTokensRequest {
     direct: bool,
     #[serde(default)]
     rhea: bool,
+    #[serde(default)]
+    native: bool,
 }
 
 fn default_direct() -> bool {
@@ -661,4 +707,5 @@ fn default_direct() -> bool {
 enum TokenBalanceSource {
     Direct,
     Rhea,
+    Native,
 }

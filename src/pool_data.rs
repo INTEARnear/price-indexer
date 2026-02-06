@@ -635,15 +635,18 @@ pub async fn extract_pool_data(
             let amount0_bd = BigDecimal::from_str(&assets.0.balance.to_string()).ok()?;
             let amount1_bd = BigDecimal::from_str(&assets.1.balance.to_string()).ok()?;
             let token0 = match &assets.0.asset_id {
-                IntearAssetId::Near => "near".parse().unwrap(),
+                IntearAssetId::Near => "wrap.near".parse().unwrap(),
                 IntearAssetId::Nep141(token_id) => token_id.clone(),
                 _ => return None,
             };
             let token1 = match &assets.1.asset_id {
-                IntearAssetId::Near => "near".parse().unwrap(),
+                IntearAssetId::Near => "wrap.near".parse().unwrap(),
                 IntearAssetId::Nep141(token_id) => token_id.clone(),
                 _ => return None,
             };
+            if token0 == token1 {
+                return None;
+            }
 
             let token0_in_1_token1 = amount0_bd.clone() / amount1_bd.clone();
             let token1_in_1_token0 = amount1_bd.clone() / amount0_bd.clone();
