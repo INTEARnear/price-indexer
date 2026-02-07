@@ -557,7 +557,7 @@ pub async fn launch_http_server(tokens: Arc<RwLock<Tokens>>) {
                                 })
                                 .collect();
                             HttpResponse::Ok()
-                                .insert_header(("Cache-Control", "public, max-age=15"))
+                                .insert_header(("Cache-Control", "public, max-age=3"))
                                 .json(response)
                         }
                     }
