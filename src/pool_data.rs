@@ -603,6 +603,10 @@ pub async fn extract_pool_data(
             let token0_in_1_token1 = amount0_bd.clone() / amount1_bd.clone();
             let token1_in_1_token0 = amount1_bd.clone() / amount0_bd.clone();
 
+            const NEAR_PHANTOM_LIQUIDITY: FtBalance = 500 * 10u128.pow(24);
+            let token_phantom_liquidity =
+                (token1_in_1_token0.clone() * NEAR_PHANTOM_LIQUIDITY).to_u128()?;
+
             Some(PoolData {
                 tokens: (
                     if is_testnet() {
@@ -613,7 +617,10 @@ pub async fn extract_pool_data(
                     pool.token_id.clone(),
                 ),
                 ratios: (token0_in_1_token1, token1_in_1_token0),
-                liquidity: (pool.wnear_hold, pool.token_hold),
+                liquidity: (
+                    pool.wnear_hold.saturating_sub(NEAR_PHANTOM_LIQUIDITY),
+                    pool.token_hold.saturating_sub(token_phantom_liquidity),
+                ),
             })
         }
         PoolType::IntearPlach(pool) => {
