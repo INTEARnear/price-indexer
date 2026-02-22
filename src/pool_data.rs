@@ -19,7 +19,7 @@ use inindexer::{
     near_utils::dec_format,
 };
 use intear_events::events::trade::trade_pool_change::{
-    IntearAssetId, IntearPlachPool, PoolType, RefPool,
+    IntearAssetId, IntearAssetWithBalance, IntearPlachPool, PoolType, RefPool,
 };
 use near_jsonrpc_client::{methods, JsonRpcClient};
 use near_jsonrpc_primitives::types::query::QueryResponseKind;
@@ -624,17 +624,32 @@ pub async fn extract_pool_data(
             })
         }
         PoolType::IntearPlach(pool) => {
-            let assets = match pool {
+            let (assets, near_phantom_liquidity) = match pool {
                 IntearPlachPool::Private {
                     assets,
                     fees: _,
                     owner_id: _,
-                } => assets,
+                } => (assets.clone(), 0),
                 IntearPlachPool::Public {
                     assets,
                     fees: _,
                     total_shares: _,
-                } => assets,
+                } => (assets.clone(), 0),
+                IntearPlachPool::Launch {
+                    near_amount,
+                    launched_asset,
+                    fees: _,
+                    phantom_liquidity_near,
+                } => (
+                    (
+                        IntearAssetWithBalance {
+                            asset_id: IntearAssetId::Near,
+                            balance: *near_amount,
+                        },
+                        launched_asset.clone(),
+                    ),
+                    *phantom_liquidity_near,
+                ),
             };
             if assets.0.balance == 0 || assets.1.balance == 0 {
                 return None;
@@ -657,10 +672,17 @@ pub async fn extract_pool_data(
 
             let token0_in_1_token1 = amount0_bd.clone() / amount1_bd.clone();
             let token1_in_1_token0 = amount1_bd.clone() / amount0_bd.clone();
+
+            let token_phantom_liquidity =
+                (token1_in_1_token0.clone() * near_phantom_liquidity).to_u128()?;
+
             Some(PoolData {
                 tokens: (token0, token1),
                 ratios: (token0_in_1_token1, token1_in_1_token0),
-                liquidity: (assets.0.balance, assets.1.balance),
+                liquidity: (
+                    assets.0.balance.saturating_sub(near_phantom_liquidity),
+                    assets.1.balance.saturating_sub(token_phantom_liquidity),
+                ),
             })
         }
     }

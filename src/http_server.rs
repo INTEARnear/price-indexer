@@ -670,6 +670,8 @@ fn serialize_with_icon(token: &Token) -> serde_json::Value {
                 Some(WRAP_NEAR_ICON.to_string())
             } else if token.account_id == "ztarknear-1845.meme-cooking.near" {
                 Some(format!("data:image/webp;base64,{}", BASE64_STANDARD.encode(include_bytes!("../icon_overrides/ztarknear-1845.meme-cooking.near.webp"))))
+            } else if token.account_id == "juij.launch.intear.nea" {
+                Some(format!("data:image/webp;base64,{}", BASE64_STANDARD.encode(include_bytes!("../icon_overrides/juij.launch.intear.near.webp"))))
             } else {
                 token.metadata.icon.clone()
             },
