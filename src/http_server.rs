@@ -440,11 +440,7 @@ pub async fn launch_http_server(tokens: Arc<RwLock<Tokens>>) {
                                         let has_wnear = balances.tokens.iter().any(|balance| balance.contract_id == wrap);
                                         let mut balances = balances.tokens.into_iter().map(|balance| TokenBalanceResponse {
                                             token: balance.contract_id,
-                                            balance: if balance.balance.is_empty() {
-                                                0
-                                            } else {
-                                                balance.balance.parse::<u128>().unwrap_or_default()
-                                            },
+                                            balance: balance.balance,
                                             source: TokenBalanceSource::Direct,
                                         }).collect::<Vec<_>>();
                                         if !has_wnear {

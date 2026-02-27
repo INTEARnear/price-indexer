@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use cached::proc_macro::cached;
-use inindexer::near_indexer_primitives::types::AccountId;
-use serde::{Deserialize, Serialize};
+use inindexer::{near_indexer_primitives::types::AccountId, near_utils::FtBalance};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::{get_reqwest_client, network::is_testnet};
 
@@ -112,21 +112,33 @@ pub struct NearIntentsTokenInfo {
     pub withdrawal_fee: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct TokenBalance {
-    pub balance: String,
+    #[serde(deserialize_with = "dec_format_or_empty")]
+    pub balance: FtBalance,
     pub contract_id: AccountId,
-    #[serde(rename = "last_update_block_height")]
-    pub last_update_block_height: Option<u64>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+fn dec_format_or_empty<'de, D>(deserializer: D) -> Result<FtBalance, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s = <String>::deserialize(deserializer)?;
+    if s.is_empty() {
+        Ok(0)
+    } else {
+        Ok(s.parse::<u128>().map_err(serde::de::Error::custom)?)
+    }
+}
+
+#[derive(Debug, Deserialize, Clone)]
 pub struct AccountTokenBalances {
+    #[allow(dead_code)]
     pub account_id: AccountId,
     pub tokens: Vec<TokenBalance>,
 }
 
-#[cached(time = 30, result = true)]
+#[cached(time = 1, result = true)]
 pub async fn get_user_token_balances(
     account_id: AccountId,
 ) -> anyhow::Result<AccountTokenBalances> {

@@ -5,10 +5,10 @@ use std::{
     time::{Duration, Instant},
 };
 
-use cached::proc_macro::{cached, once};
+use cached::proc_macro::once;
 use chrono::{DateTime, Utc};
 use inindexer::near_indexer_primitives::types::{AccountId, BlockHeight};
-use inindexer::near_utils::{dec_format, FtBalance};
+use inindexer::near_utils::FtBalance;
 use intear_events::events::trade::trade_pool_change::PoolType;
 use itertools::Itertools;
 use num_traits::ToPrimitive;
@@ -16,8 +16,9 @@ use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use sqlx::types::BigDecimal;
 
-use crate::network::{get_hardcoded_main_pool, is_testnet};
+use crate::network::get_hardcoded_main_pool;
 use crate::token::HardcodedTokenPrice;
+use crate::utils::get_user_token_balances;
 use crate::{
     get_reqwest_client, network,
     pool_data::PoolData,
@@ -319,7 +320,15 @@ impl Tokens {
         parent: Option<AccountId>,
     ) -> Vec<&Token> {
         let owned_tokens = if let Some(account_id) = account_id {
-            get_owned_tokens(account_id).await
+            get_user_token_balances(account_id)
+                .await
+                .map(|b| {
+                    b.tokens
+                        .into_iter()
+                        .map(|t| (t.contract_id, t.balance))
+                        .collect()
+                })
+                .unwrap_or_default()
         } else {
             HashMap::new()
         };
@@ -350,48 +359,6 @@ impl Tokens {
             .map(|(token, _)| token)
             .take(take)
             .collect()
-    }
-}
-
-#[cached(time = 3600)]
-async fn get_owned_tokens(account_id: AccountId) -> HashMap<AccountId, u128> {
-    #[derive(Debug, Deserialize)]
-    struct Response {
-        tokens: Vec<Token>,
-        #[allow(dead_code)]
-        account_id: AccountId,
-    }
-
-    #[derive(Debug, Deserialize)]
-    struct Token {
-        #[allow(dead_code)]
-        last_update_block_height: Option<BlockHeight>,
-        contract_id: AccountId,
-        #[serde(with = "dec_format")]
-        balance: FtBalance,
-    }
-
-    let url = if is_testnet() {
-        format!("https://test.api.fastnear.com/v1/account/{account_id}/ft")
-    } else {
-        format!("https://api.fastnear.com/v1/account/{account_id}/ft")
-    };
-    match get_reqwest_client().get(&url).send().await {
-        Ok(response) => match response.json::<Response>().await {
-            Ok(response) => response
-                .tokens
-                .into_iter()
-                .map(|ft| (ft.contract_id, ft.balance))
-                .collect(),
-            Err(e) => {
-                log::warn!("Failed to parse response of FTs owned by {account_id}: {e:?}");
-                HashMap::new()
-            }
-        },
-        Err(e) => {
-            log::warn!("Failed to get FTs owned by {account_id}: {e:?}");
-            HashMap::new()
-        }
     }
 }
 
