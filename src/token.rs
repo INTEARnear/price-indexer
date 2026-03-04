@@ -91,66 +91,96 @@ fn default_account_id() -> AccountId {
 }
 
 impl Token {
-    pub fn sorting_score(&self, search: &str) -> u128 {
+    pub fn sorting_score(&self, search_lowercase: &str) -> u128 {
+        assert_eq!(search_lowercase, search_lowercase.to_lowercase());
         if (self.account_id == "wrap.near" || self.account_id == "wrap.testnet")
-            && ("near".starts_with(search)
-                || "wnear".starts_with(search)
-                || "wrap.near".starts_with(search)
-                || "wrap.testnet".starts_with(search))
+            && ("near".starts_with(search_lowercase)
+                || "wnear".starts_with(search_lowercase)
+                || "wrap.near".starts_with(search_lowercase)
+                || "wrap.testnet".starts_with(search_lowercase))
         {
             return 69696969696969;
         }
-        let relevancy = if search.trim_start_matches('$')
+        let relevancy = if search_lowercase.trim_start_matches('$')
+            == self.metadata.symbol.to_lowercase().trim_start_matches('$')
+        {
+            110
+        } else if search_lowercase.trim_start_matches('$')
             == self.metadata.name.to_lowercase().trim_start_matches('$')
-            || search.trim_start_matches('$')
-                == self.metadata.symbol.to_lowercase().trim_start_matches('$')
         {
-            1000
-        } else if search == self.account_id || self.slug.contains(&search.to_owned()) {
-            900
-        } else if self.metadata.symbol.to_lowercase().starts_with(search)
-            || self.metadata.name.to_lowercase().starts_with(search)
-            || self.slug.iter().any(|slug| slug.starts_with(search))
+            105
+        } else if search_lowercase == self.account_id
+            || self.slug.contains(&search_lowercase.to_string())
         {
-            300
-        } else if self.metadata.symbol.to_lowercase().contains(search)
-            || self.metadata.name.to_lowercase().contains(search)
-            || self.account_id.as_str().contains(search)
-            || self.slug.iter().any(|slug| slug.contains(search))
+            100
+        } else if self
+            .metadata
+            .symbol
+            .to_lowercase()
+            .starts_with(search_lowercase)
         {
             30
-        } else if self.socials.values().any(|v| v == search) {
+        } else if self
+            .metadata
+            .name
+            .to_lowercase()
+            .starts_with(search_lowercase)
+            || self
+                .slug
+                .iter()
+                .any(|slug| slug.starts_with(search_lowercase))
+        {
             20
-        } else if self.socials.values().any(|v| v.contains(search)) {
+        } else if self
+            .metadata
+            .symbol
+            .to_lowercase()
+            .contains(search_lowercase)
+            || self.metadata.name.to_lowercase().contains(search_lowercase)
+            || self.account_id.as_str().contains(search_lowercase)
+            || self.slug.iter().any(|slug| slug.contains(search_lowercase))
+        {
+            10
+        } else if self.socials.values().any(|v| v == search_lowercase) {
             5
+        } else if self.socials.values().any(|v| v.contains(search_lowercase)) {
+            1
         } else {
             0
         };
         let reputation_score = match self.reputation {
             TokenScore::Spam => 1,
             TokenScore::Unknown => 10,
-            TokenScore::NotFake => 100,
-            TokenScore::Reputable => 150,
+            TokenScore::NotFake => 11,
+            TokenScore::Reputable => 15,
         };
         let circulating_supply_human_readable =
             self.circulating_supply_excluding_team / 10u128.pow(self.metadata.decimals);
         let market_cap_usd = self.price_usd_hardcoded.to_f64().unwrap_or_default()
             * circulating_supply_human_readable as f64;
         let market_cap_score = if market_cap_usd < 1_000.0 {
-            50
+            5
         } else if market_cap_usd < 10_000.0 {
-            75
+            7
         } else if market_cap_usd < 100_000.0 {
-            100
+            10
         } else if market_cap_usd < 1_000_000.0 {
-            120
+            12
         } else if market_cap_usd < 10_000_000.0 {
-            150
+            15
         } else {
-            200
+            20
         };
-        // TODO also include volume in calculation
-        relevancy * reputation_score * market_cap_score
+        let volume_score = if self.volume_usd_24h < 10.0 {
+            1
+        } else if self.volume_usd_24h < 100.0 {
+            2
+        } else if self.volume_usd_24h < 1_000.0 {
+            4
+        } else {
+            10
+        };
+        relevancy * reputation_score * market_cap_score * volume_score
     }
 }
 
@@ -349,6 +379,8 @@ pub fn get_reputation(token_id: &AccountId, spam_tokens: &HashSet<AccountId>) ->
         | "token.intear.near"
         | "xtoken.rhealab.near"
         | "pool.intear.near"
+        | "juij.launch.intear.near"
+        | "68749665ff8d2d112fa859aa293f07a622782f38.factory.bridge.near"
         | "853d955acef822db058eb8505911ed77f175b99e.factory.bridge.near" => TokenScore::NotFake,
         "token.lonkingnearbackto2024.near"
         | "token.sweat"

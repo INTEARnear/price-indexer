@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use cached::proc_macro::cached;
 use inindexer::{near_indexer_primitives::types::AccountId, near_utils::FtBalance};
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer};
 
 use crate::{get_reqwest_client, network::is_testnet};
 
@@ -76,40 +76,6 @@ pub mod dec_format_tuple2 {
             tuple.1.parse::<u128>().map_err(D::Error::custom)?,
         ))
     }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct SupportedTokensRequest {
-    pub chains: Vec<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct JsonRpcSupportedTokensRequest {
-    pub id: i32,
-    pub jsonrpc: String,
-    pub method: String,
-    pub params: Vec<SupportedTokensRequest>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct JsonRpcSupportedTokensResponse {
-    pub result: SupportedTokensResponse,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct SupportedTokensResponse {
-    pub tokens: Vec<NearIntentsTokenInfo>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct NearIntentsTokenInfo {
-    pub defuse_asset_identifier: String,
-    pub near_token_id: String,
-    pub decimals: u8,
-    pub asset_name: String,
-    pub min_deposit_amount: String,
-    pub min_withdrawal_amount: String,
-    pub withdrawal_fee: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]

@@ -668,6 +668,12 @@ fn serialize_with_icon(token: &Token) -> serde_json::Value {
                 Some(format!("data:image/webp;base64,{}", BASE64_STANDARD.encode(include_bytes!("../icon_overrides/ztarknear-1845.meme-cooking.near.webp"))))
             } else if token.account_id == "juij.launch.intear.near" {
                 Some(format!("data:image/webp;base64,{}", BASE64_STANDARD.encode(include_bytes!("../icon_overrides/juij.launch.intear.near.webp"))))
+            } else if token.account_id == "kat.token0.near" {
+                Some(format!("data:image/webp;base64,{}", BASE64_STANDARD.encode(include_bytes!("../icon_overrides/kat.token0.near.webp"))))
+            } else if token.account_id == "jlu-1018.meme-cooking.near" {
+                Some(format!("data:image/webp;base64,{}", BASE64_STANDARD.encode(include_bytes!("../icon_overrides/jlu-1018.meme-cooking.near.webp"))))
+            } else if token.account_id == "68749665ff8d2d112fa859aa293f07a622782f38.factory.bridge.near" {
+                Some(format!("data:image/svg+xml,{}", include_str!("../icon_overrides/68749665ff8d2d112fa859aa293f07a622782f38.factory.bridge.near.svg").replace('#', "%23")))
             } else {
                 token.metadata.icon.clone()
             },
